@@ -473,6 +473,37 @@ function pipeline(img, verbose = true) {
     if (sp > bestSpread) { bestSpread = sp; bestCorners = c; bestTol = tol; }
   }
   log.i('Обрано tol=' + bestTol + '  spread=' + Math.round(bestSpread) + 'px');
+  // Якщо маска не знайшла — пробуємо variance (як у zebra_finder(3))
+  if (!bestCorners || bestSpread < 30) {
+    log.i('Маска не спрацювала — пробую variance-scan');
+    const topRows = [], botRows = [], leftCols = [], rightCols = [];
+    for (let y = 0; y < h; y++) {
+      let sum = 0, sum2 = 0;
+      for (let x = 0; x < w; x++) { const v = gray[y*w+x]; sum+=v; sum2+=v*v; }
+      const avg = sum/w;
+      const std = Math.sqrt(sum2/w - avg*avg);
+      if (std > 50) { topRows.push(y); botRows.push(y); }
+    }
+    for (let x = 0; x < w; x++) {
+      let sum = 0, sum2 = 0;
+      for (let y = 0; y < h; y++) { const v = gray[y*w+x]; sum+=v; sum2+=v*v; }
+      const avg = sum/h;
+      const std = Math.sqrt(sum2/h - avg*avg);
+      if (std > 50) { leftCols.push(x); rightCols.push(x); }
+    }
+    topRows.sort((a,b)=>a-b); leftCols.sort((a,b)=>a-b);
+    if (topRows.length > 0 && leftCols.length > 0) {
+      const vTL = { x: leftCols[0], y: topRows[0] };
+      const vTR = { x: leftCols[leftCols.length-1], y: topRows[0] };
+      const vBR = { x: leftCols[leftCols.length-1], y: topRows[topRows.length-1] };
+      const vBL = { x: leftCols[0], y: topRows[topRows.length-1] };
+      const vc = { tl: vTL, tr: vTR, br: vBR, bl: vBL };
+      const vsp = spread(vc);
+      log.i('Variance: spread=' + Math.round(vsp) +
+            '  TL(' + vTL.x + ',' + vTL.y + ') TR(' + vTR.x + ',' + vTR.y + ')');
+      if (vsp > bestSpread) { bestCorners = vc; bestSpread = vsp; }
+    }
+  }
 
   if (!bestCorners || bestSpread < 20) {
     log.e('Рамку не знайдено (spread=' + Math.round(bestSpread) + ')');

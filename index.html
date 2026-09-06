@@ -474,7 +474,7 @@ function pipeline(img, verbose = true) {
   }
   log.i('Обрано tol=' + bestTol + '  spread=' + Math.round(bestSpread) + 'px');
 
-  if (!bestCorners || bestSpread < p.sprd) {
+  if (!bestCorners || bestSpread < 20) {
     log.e('Рамку не знайдено (spread=' + Math.round(bestSpread) + ')');
     return { ok: false, idata, w, h };
   }

@@ -508,8 +508,14 @@ function pipeline(img, verbose = true) {
   if (!bestCorners || bestSpread < 20) {
     log.e('Рамку не знайдено (spread=' + Math.round(bestSpread) + ')');
     return { ok: false, idata, w, h };
-  }
-  const corners = bestCorners;
+  }  // Відсуваємо кути назовні на ~6px щоб захопити зовнішній край зебри
+  const expand = 6;
+  const corners = {
+    tl: { x: bestCorners.tl.x - expand, y: bestCorners.tl.y - expand },
+    tr: { x: bestCorners.tr.x + expand, y: bestCorners.tr.y - expand },
+    br: { x: bestCorners.br.x + expand, y: bestCorners.br.y + expand },
+    bl: { x: bestCorners.bl.x - expand, y: bestCorners.bl.y + expand }
+  };
   const sprd = bestSpread;
 
   log.h('3. ПЕРСПЕКТИВНА КОРЕКЦІЯ');

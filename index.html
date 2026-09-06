@@ -457,22 +457,29 @@ function pipeline(img, verbose = true) {
   log.h('2. МАСКА ТА КУТИ');
   const gray = toGray(idata, w, h);
   const bg = sampleBG(gray, w, h, 5);
-  const rawMask = makeMask(gray, w, h, bg, p.bgTol);
-  const mask = erodeMask(rawMask, w, h);
-  const fgN = mask.reduce((s,v)=>s+v,0);
+  log.i('BG luma: ' + bg);
 
-  if (fgN < 100) {
-    log.e('Недостатньо переднього плану');
-    return { ok: false };
+  const tols = [20, 30, 42, 55, 70, 90];
+  let bestCorners = null, bestSpread = 0, bestTol = 0;
+  for (const tol of tols) {
+    const rm = makeMask(gray, w, h, bg, tol);
+    const em = erodeMask(rm, w, h);
+    const fgN = em.reduce((s,v)=>s+v,0);
+    if (fgN < 50) { log.i('  tol=' + tol + ' FG=' + fgN + ' — пропуск'); continue; }
+    const c = findCorners(em, w, h, 15);
+    const sp = spread(c);
+    log.i('  tol=' + tol + '  FG=' + fgN + '  spread=' + Math.round(sp) +
+          'px  TL(' + c.tl.x + ',' + c.tl.y + ') TR(' + c.tr.x + ',' + c.tr.y + ')');
+    if (sp > bestSpread) { bestSpread = sp; bestCorners = c; bestTol = tol; }
   }
+  log.i('Обрано tol=' + bestTol + '  spread=' + Math.round(bestSpread) + 'px');
 
-  const corners = findCorners(mask, w, h, 15);
-  const sprd = spread(corners);
-
-  if (sprd < p.sprd) {
-    log.w(`Spread ${Math.round(sprd)} < ${p.sprd}`);
-    return { ok: false, corners, idata, w, h };
+  if (!bestCorners || bestSpread < p.sprd) {
+    log.e('Рамку не знайдено (spread=' + Math.round(bestSpread) + ')');
+    return { ok: false, idata, w, h };
   }
+  const corners = bestCorners;
+  const sprd = bestSpread;
 
   log.h('3. ПЕРСПЕКТИВНА КОРЕКЦІЯ');
   const S = p.warp;

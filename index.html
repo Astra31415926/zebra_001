@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZEBRA FINDER · v5.0</title>
+<title>ZEBRA FINDER · v5.1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden;background:#080808;color:#aaa;font:11px/1.6 'Courier New',monospace}
@@ -40,7 +40,7 @@ input[type=file]{display:none}
   <!-- LEFT: canvas -->
   <div id="left">
     <div id="topbar">
-      <h1>ZEBRA · v5</h1>
+      <h1>ZEBRA · v5.1</h1>
       <label class="btn">▶ Файл<input type="file" id="fin" accept="image/*"></label>
       <button class="btn" id="camBtn">◎ Камера</button>
       <button class="btn" id="capBtn" style="display:none">● Знімок</button>
@@ -78,7 +78,6 @@ const setSt = (text, ok) => {
   el.textContent = text;
   el.style.color = ok === true ? '#55eb5a' : ok === false ? '#eb5555' : '#888';
 };
-const setMeta = t => {};
 
 const P = () => ({ bgTol:42, zebCon:50, sprd:40, warp:600 });
 
@@ -411,39 +410,69 @@ function drawInput(idata, w, h, corners, cnv) {
   }
 }
 
+// ─────────────────────────────────────────────
+//  drawOutput — v5.1: сітка + кружечки в центрі кожної клітинки
+// ─────────────────────────────────────────────
 function drawOutput(warped, S, zebraResult, cnv) {
   cnv.width = S; cnv.height = S;
   const ctx = cnv.getContext('2d');
+
+  // 1. Малюємо варп-зображення
   if (warped) ctx.putImageData(warped, 0, 0);
   if (!zebraResult) return;
 
   const { T, modSize } = zebraResult;
 
-  ctx.strokeStyle='rgba(40,120,200,0.12)'; ctx.lineWidth=0.5;
-  for (let i=0;i<=T;i++) {
-    const p = i*modSize;
-    ctx.beginPath(); ctx.moveTo(p,0); ctx.lineTo(p,S); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0,p); ctx.lineTo(S,p); ctx.stroke();
+  // 2. Тонка сітка (лінії між клітинками)
+  ctx.strokeStyle = 'rgba(40,120,200,0.18)';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= T; i++) {
+    const p = i * modSize;
+    ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, S); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(S, p); ctx.stroke();
   }
 
-  for (let i=0;i<T;i++) {
+  // 3. Підсвічування крайніх рядів/стовпців зебри (рамка-зебра)
+  for (let i = 0; i < T; i++) {
     const isBlack = (i % 2 === 0);
-    const col = isBlack ? 'rgba(255,80,80,0.25)' : 'rgba(80,180,255,0.15)';
-    ctx.fillStyle=col;
-    ctx.fillRect(i*modSize, 0, modSize, modSize);
-    ctx.fillRect(i*modSize, S-modSize, modSize, modSize);
-    if (i>0 && i<T-1) ctx.fillRect(0, i*modSize, modSize, modSize);
-    if (i>0 && i<T-1) ctx.fillRect(S-modSize, i*modSize, modSize, modSize);
+    const col = isBlack ? 'rgba(255,80,80,0.18)' : 'rgba(80,180,255,0.10)';
+    ctx.fillStyle = col;
+    ctx.fillRect(i * modSize, 0, modSize, modSize);
+    ctx.fillRect(i * modSize, S - modSize, modSize, modSize);
+    if (i > 0 && i < T - 1) ctx.fillRect(0, i * modSize, modSize, modSize);
+    if (i > 0 && i < T - 1) ctx.fillRect(S - modSize, i * modSize, modSize, modSize);
   }
 
-  ctx.fillStyle='rgba(255,220,50,0.45)';
-  ctx.fillRect(0,0,modSize,modSize);
-  ctx.fillRect(S-modSize,0,modSize,modSize);
-  ctx.fillRect(S-modSize,S-modSize,modSize,modSize);
-  ctx.fillRect(0,S-modSize,modSize,modSize);
+  // 4. Кутові маркери (жовті)
+  ctx.fillStyle = 'rgba(255,220,50,0.40)';
+  ctx.fillRect(0, 0, modSize, modSize);
+  ctx.fillRect(S - modSize, 0, modSize, modSize);
+  ctx.fillRect(S - modSize, S - modSize, modSize, modSize);
+  ctx.fillRect(0, S - modSize, modSize, modSize);
 
-  ctx.strokeStyle='rgba(80,235,120,0.6)'; ctx.lineWidth=1.5;
-  ctx.strokeRect(modSize,modSize,(T-2)*modSize,(T-2)*modSize);
+  // 5. Зелена рамка внутрішньої зони
+  ctx.strokeStyle = 'rgba(80,235,120,0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(modSize, modSize, (T - 2) * modSize, (T - 2) * modSize);
+
+  // ── 6. КРУЖЕЧКИ В ЦЕНТРІ КОЖНОЇ КЛІТИНКИ ВНУТРІШНЬОЇ ЗОНИ ──
+  //   Внутрішня зона: від рядка/стовпця 1 до T-2 включно
+  //   (індекс 0 і T-1 — це зебра-рамка)
+  const circleR = modSize * 0.28;   // радіус кола — 28% від розміру клітинки
+  const circleLineWidth = Math.max(0.8, modSize * 0.06);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+  ctx.lineWidth = circleLineWidth;
+
+  for (let row = 1; row < T - 1; row++) {
+    for (let col = 1; col < T - 1; col++) {
+      const cx = col * modSize + modSize / 2;
+      const cy = row * modSize + modSize / 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, circleR, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
 }
 
 function pipeline(img, verbose = true) {
@@ -473,7 +502,7 @@ function pipeline(img, verbose = true) {
     if (sp > bestSpread) { bestSpread = sp; bestCorners = c; bestTol = tol; }
   }
   log.i('Обрано tol=' + bestTol + '  spread=' + Math.round(bestSpread) + 'px');
-  // Якщо маска не знайшла — пробуємо variance (як у zebra_finder(3))
+
   if (!bestCorners || bestSpread < 30) {
     log.i('Маска не спрацювала — пробую variance-scan');
     const topRows = [], botRows = [], leftCols = [], rightCols = [];
@@ -508,7 +537,8 @@ function pipeline(img, verbose = true) {
   if (!bestCorners || bestSpread < 20) {
     log.e('Рамку не знайдено (spread=' + Math.round(bestSpread) + ')');
     return { ok: false, idata, w, h };
-  }  // Відсуваємо кути назовні на ~6px щоб захопити зовнішній край зебри
+  }
+
   const expand = 6;
   const corners = {
     tl: { x: bestCorners.tl.x - expand, y: bestCorners.tl.y - expand },
@@ -516,7 +546,6 @@ function pipeline(img, verbose = true) {
     br: { x: bestCorners.br.x + expand, y: bestCorners.br.y + expand },
     bl: { x: bestCorners.bl.x - expand, y: bestCorners.bl.y + expand }
   };
-  const sprd = bestSpread;
 
   log.h('3. ПЕРСПЕКТИВНА КОРЕКЦІЯ');
   const S = p.warp;
@@ -541,7 +570,6 @@ function pipeline(img, verbose = true) {
 function run(img) {
   clr();
   setSt('обробка…', null);
-  setMeta('');
 
   const result = pipeline(img, true);
   const mainCnv = document.getElementById('cnv');
@@ -552,7 +580,9 @@ function run(img) {
   }
 
   if (result.ok) {
-    setSt('✓ РАМКУ ЗНАЙДЕНО', true);
+    const z = result.zebra;
+    setSt(`✓ T=${z.T}  mod=${z.modSize.toFixed(1)}px`, true);
+    Lok(`Кружечки: ${(z.T-2)*(z.T-2)} шт.  r=${(z.modSize*0.28).toFixed(1)}px`);
   } else {
     setSt('✗ рамку не знайдено', false);
   }

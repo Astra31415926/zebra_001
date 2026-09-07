@@ -564,8 +564,305 @@ function pipeline(img, verbose = true) {
   log.h('5. ПЕРЕВІРКА КУТОВИХ КВАДРАТІВ');
   const cornerCheck = verifyCornerBlack(wGray, S, zebra.modSize);
 
-  return { ok: true, corners, idata, w, h, warped, S, zebra, cornerCheck };
+  log.h('6. АНАЛІЗ КРУЖЕЧКІВ');
+  const circles = sampleCircles(warped, S, zebra.T, zebra.modSize);
+  log.i(`  Клітинок: ${circles.cells.length}  (${zebra.T-2}×${zebra.T-2} внутрішніх)`);
+  log.i(`  Радіус вибірки: ${circles.circleR.toFixed(1)} px`);
+
+  // Статистика: розподіл яскравості
+  const lumas = circles.cells.map(c => (c.r + c.g + c.b) / 3);
+  const lumaMin = Math.min(...lumas).toFixed(0);
+  const lumaMax = Math.max(...lumas).toFixed(0);
+  const lumaMed = [...lumas].sort((a,b)=>a-b)[lumas.length>>1].toFixed(0);
+  log.i(`  Яскравість: min=${lumaMin}  med=${lumaMed}  max=${lumaMax}`);
+
+  // Авто-поріг: середнє між мін і макс
+  const autoThr = (parseFloat(lumaMin) + parseFloat(lumaMax)) / 2;
+  const bits = lumas.map(l => l > autoThr ? 1 : 0);
+  const ones = bits.filter(b => b).length;
+  log.i(`  Поріг авто=${autoThr.toFixed(0)} → 1: ${ones}  0: ${bits.length - ones}`);
+
+  // Насиченість — колір чи моно?
+  const sats = circles.cells.map(c => Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b));
+  const medSat = [...sats].sort((a,b)=>a-b)[sats.length>>1];
+  const coloredCount = sats.filter(s => s > 60).length;
+  const isColored = medSat > 25 || coloredCount >= Math.max(3, circles.cells.length * 0.15);
+  log.i(`  Насиченість: медіана=${medSat.toFixed(0)}  кольорових=${coloredCount} → ${isColored ? 'КОЛІР' : 'МОНО'}`);
+
+  // Бітовий рядок (перший рядок для preview)
+  const rowLen = zebra.T - 2;
+  const row0 = bits.slice(0, rowLen).join('');
+  log.i(`  Рядок 0: ${row0}`);
+
+  return { ok: true, corners, idata, w, h, warped, S, zebra, cornerCheck, circles, bits };
 }
+
+// ─────────────────────────────────────────────
+//  sampleCircles — зчитує усереднений RGB
+//  кожного внутрішнього кружечка сітки
+// ─────────────────────────────────────────────
+function sampleCircles(warped, S, T, modSize) {
+  const d = warped.data;
+  const circleR = modSize * 0.28;
+  const r2 = circleR * circleR;
+  const cells = [];
+
+  for (let row = 1; row < T - 1; row++) {
+    for (let col = 1; col < T - 1; col++) {
+      const cx = col * modSize + modSize / 2;
+      const cy = row * modSize + modSize / 2;
+
+      let sumR = 0, sumG = 0, sumB = 0, cnt = 0;
+
+      // Перебираємо пікселі в bounding box кола
+      const x0 = Math.max(0, Math.floor(cx - circleR));
+      const x1 = Math.min(S - 1, Math.ceil(cx + circleR));
+      const y0 = Math.max(0, Math.floor(cy - circleR));
+      const y1 = Math.min(S - 1, Math.ceil(cy + circleR));
+
+      for (let py = y0; py <= y1; py++) {
+        for (let px = x0; px <= x1; px++) {
+          const dx = px - cx, dy = py - cy;
+          if (dx * dx + dy * dy > r2) continue; // тільки всередині кола
+          const idx = (py * S + px) * 4;
+          sumR += d[idx];
+          sumG += d[idx + 1];
+          sumB += d[idx + 2];
+          cnt++;
+        }
+      }
+
+      if (cnt === 0) { cells.push({ r: 0, g: 0, b: 0, row, col }); continue; }
+      cells.push({
+        r: sumR / cnt,
+        g: sumG / cnt,
+        b: sumB / cnt,
+        row, col
+      });
+    }
+  }
+
+  return { cells, circleR };
+}
+
+// ═══════════════════════════════════════════════════════
+//  TAINA-ДЕКОДЕР — алгоритми з Дебаг-сканер v15
+//  Працюють з масивом cells [{r,g,b}] з sampleCircles
+// ═══════════════════════════════════════════════════════
+
+const RGB_MAIN = {r:[255,0,0], g:[0,255,0], b:[0,0,255]};
+const RGB_GAL  = {r:[220,50,60], g:[65,195,65], b:[60,70,215]};
+const REFBITS  = [[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,1,1],[1,1,1]];
+
+const _enc = new TextEncoder();
+const _dec = new TextDecoder('utf-8', {fatal:true});
+
+function isClean(t) {
+  for (const ch of t) { const o=ch.codePointAt(0); if(o===0)return false; if(o<32&&ch!=='\n'&&ch!=='\t')return false; } return true;
+}
+function bytesToText(by) {
+  by = by.slice(); while(by.length && by[by.length-1]===0) by.pop();
+  if(!by.length) return null;
+  try { const t=_dec.decode(new Uint8Array(by)); return isClean(t)?t:null; } catch(e) { return null; }
+}
+function textBits(t) {
+  const d=_enc.encode(t), b=new Uint8Array(d.length*8);
+  for(let i=0;i<d.length;i++) for(let k=0;k<8;k++) b[i*8+k]=(d[i]>>(7-k))&1;
+  return b;
+}
+
+function Rof(n) { return (n-1)/2; }
+
+function baseCells(m, n) {
+  const c=Rof(n), o=[];
+  if(m==='oct')      { for(let i=0;i<=c;i++) for(let j=0;j<=i;j++) o.push([c+i,c+j]); }
+  else if(m==='quad'){ for(let i=0;i<=c;i++) for(let j=0;j<=c;j++) o.push([c+i,c+j]); }
+  else               { for(let y=0;y<n;y++) for(let i=0;i<=c;i++) o.push([c+i,y]); }
+  return o;
+}
+
+function mirrors(m, n, x, y) {
+  const c=Rof(n), i=x-c, j=y-c; let p;
+  if(m==='oct')      p=[[i,j],[j,i],[-i,j],[-j,i],[i,-j],[j,-i],[-i,-j],[-j,-i]];
+  else if(m==='quad') p=[[i,j],[-i,j],[i,-j],[-i,-j]];
+  else                p=[[i,j],[-i,j]];
+  const o=[];
+  for(const[a,b] of p){ const X=c+a, Y=c+b; if(X>=0&&Y>=0&&X<n&&Y<n) o.push([X,Y]); }
+  return o;
+}
+
+function fillChannel(t, n, m, markBit) {
+  const g=new Uint8Array(n*n), bc=baseCells(m,n); let seq=textBits(t);
+  if(markBit!==undefined&&markBit!==null){ const s2=new Uint8Array(seq.length+1); s2[0]=markBit; s2.set(seq,1); seq=s2; }
+  const lim=Math.min(seq.length,bc.length);
+  for(let i=0;i<lim;i++){ const[x,y]=bc[i]; for(const[X,Y] of mirrors(m,n,x,y)) if(seq[i]) g[Y*n+X]=1; }
+  return g;
+}
+
+function markCell(g, n, m) { const[x,y]=baseCells(m,n)[0]; return g[y*n+x]?1:0; }
+
+function agree(g, chk, n) {
+  let ok=0; for(let z=0;z<n*n;z++) ok+=((chk[z]?1:0)===g[z])?1:0; return ok/(n*n);
+}
+
+function decodeVoted(g, n, m, off, conf) {
+  const bc=baseCells(m,n), by=[];
+  for(let i=off||0; i+7<bc.length; i+=8){
+    let v=0;
+    for(let b=0;b<8;b++){
+      const[x,y]=bc[i+b], cells=mirrors(m,n,x,y);
+      let bit;
+      if(conf){
+        let w1=0,w0=0;
+        for(const[X,Y] of cells){ const c=conf[Y*n+X]; if(c<0.15)continue; if(g[Y*n+X])w1+=c; else w0+=c; }
+        if(w1===0&&w0===0) bit=g[y*n+x]?1:0; else bit=w1>w0?1:0;
+      } else {
+        let ones=0; for(const[X,Y] of cells) ones+=g[Y*n+X]?1:0;
+        const cnt=cells.length;
+        if(ones*2>cnt) bit=1; else if(ones*2<cnt) bit=0; else bit=g[y*n+x]?1:0;
+      }
+      v=(v<<1)|bit;
+    }
+    by.push(v);
+  }
+  return { text: bytesToText(by), bytes: by };
+}
+
+function refsFor(S) {
+  const mix=(r,g,b)=>[Math.min(255,(r?S.r[0]:0)+(g?S.g[0]:0)+(b?S.b[0]:0)),
+                      Math.min(255,(r?S.r[1]:0)+(g?S.g[1]:0)+(b?S.b[1]:0)),
+                      Math.min(255,(r?S.r[2]:0)+(g?S.g[2]:0)+(b?S.b[2]:0))];
+  return REFBITS.map(c=>({bits:c, col:mix(c[0],c[1],c[2])}));
+}
+
+function classifyCells(cells, n) {
+  const pals = [['насичена',RGB_MAIN],['галерейна',RGB_GAL]];
+  let best = null;
+  for(const[name,S] of pals){
+    const refs=refsFor(S); let err=0;
+    const cr=new Uint8Array(n*n), cg=new Uint8Array(n*n), cb=new Uint8Array(n*n);
+    for(let i=0;i<n*n;i++){
+      const[R,G,B]=[cells[i].r, cells[i].g, cells[i].b];
+      let bi=0, bd=1e9;
+      for(let k=0;k<refs.length;k++){
+        const q=refs[k].col, dr=R-q[0], dg=G-q[1], db=B-q[2], d=dr*dr+dg*dg+db*db;
+        if(d<bd){bd=d;bi=k;}
+      }
+      err+=bd; const t=refs[bi].bits; cr[i]=t[0]; cg[i]=t[1]; cb[i]=t[2];
+    }
+    if(!best||err<best.err) best={name,err,cr,cg,cb};
+  }
+  return best;
+}
+
+function symScore(gl, n) {
+  // oct-групи для оцінки симетрії
+  const seen=new Set(), groups=[], c=(n-1)/2;
+  for(let y=0;y<n;y++) for(let x=0;x<n;x++){
+    const i=x-c, j=y-c;
+    const p=[[i,j],[j,i],[-i,j],[-j,i],[i,-j],[j,-i],[-i,-j],[-j,-i]], g=[];
+    for(const[a,b] of p){ const X=c+a,Y=c+b; if(X>=0&&Y>=0&&X<n&&Y<n) g.push([X,Y]); }
+    const key=g.map(q=>q[0]+','+q[1]).sort().join(';');
+    if(seen.has(key))continue; seen.add(key); groups.push(g);
+  }
+  let tot=0, ok=0;
+  for(const g of groups){
+    let s=0; for(const[X,Y] of g) s+=gl[Y*n+X];
+    const maj=s*2>g.length?1:0; tot+=g.length;
+    for(const[X,Y] of g) ok+=(gl[Y*n+X]===maj)?1:0;
+  }
+  return {frac:ok/tot, ok, tot};
+}
+
+// ── Головна функція декодування з кружечків ──
+function decodeCircles(circles, T, log) {
+  const cells = circles.cells;
+  const n = T - 2; // розмір внутрішньої сітки даних
+
+  if(n < 7 || n % 2 === 0) {
+    log.w(`n=${n} — замалий або парний, декод пропущено`);
+    return null;
+  }
+
+  // Масив яскравостей для mono-сітки
+  const lumas = cells.map(c => (c.r + c.g + c.b) / 3);
+  const lumaMin = Math.min(...lumas);
+  const lumaMax = Math.max(...lumas);
+  const autoThr = (lumaMin + lumaMax) / 2;
+
+  const gl = new Uint8Array(n * n);
+  const confMono = new Float32Array(n * n);
+  cells.forEach((c, i) => {
+    const L = (c.r + c.g + c.b) / 3;
+    gl[i] = L > autoThr ? 1 : 0;
+    confMono[i] = Math.min(1, Math.abs(L - autoThr) / (autoThr / 2 + 1));
+  });
+
+  // Насиченість
+  const sats = cells.map(c => Math.max(c.r,c.g,c.b) - Math.min(c.r,c.g,c.b));
+  const medSat = [...sats].sort((a,b)=>a-b)[sats.length>>1];
+  const coloredCount = sats.filter(s=>s>60).length;
+  const isColored = medSat > 25 || coloredCount >= Math.max(3, n * 0.15);
+
+  log.i(`  n=${n}  поріг=${autoThr.toFixed(0)}  ${isColored?'КОЛІР':'МОНО'}`);
+
+  // Симетрія
+  const sym = symScore(gl, n);
+  log.i(`  симетрія=${sym.frac.toFixed(3)}`);
+
+  const modes = ['oct','quad','half'];
+
+  if(!isColored) {
+    // ── МОНО ──
+    log.h('7. ДЕКОД МОНО');
+    let best = null;
+    for(const m of modes){
+      const v = decodeVoted(gl, n, m, 0, confMono);
+      if(v.text !== null){
+        const a = agree(gl, fillChannel(v.text, n, m), n);
+        log.ok(`[${m}] "${v.text}"  узгодж=${a.toFixed(3)}`);
+        if(!best || a > best.a) best = {v, a, m};
+      } else {
+        log.i(`  [${m}] null`);
+      }
+    }
+    return best ? {type:`МОНО·${best.m}`, text:best.v.text} : {type:'МОНО', text:null};
+  } else {
+    // ── КОЛІР ──
+    log.h('7. ДЕКОД КОЛІР');
+    const cls = classifyCells(cells, n);
+    log.i(`  палітра: ${cls.name}`);
+
+    const confR=new Float32Array(n*n), confG=new Float32Array(n*n), confB=new Float32Array(n*n);
+    cells.forEach((c,i)=>{
+      confR[i]=Math.min(1,Math.abs(c.r-128)/90);
+      confG[i]=Math.min(1,Math.abs(c.g-128)/90);
+      confB[i]=Math.min(1,Math.abs(c.b-128)/90);
+    });
+
+    let best = null;
+    for(const m of modes){
+      const rMark = markCell(cls.cr, n, m);
+      let vr = decodeVoted(cls.cr, n, m, rMark?1:0, confR);
+      if(rMark && vr.text===null) vr = decodeVoted(cls.cr, n, m, 0, confR);
+      const vg = decodeVoted(cls.cg, n, m, 0, confG);
+      const vb = decodeVoted(cls.cb, n, m, 0, confB);
+      const nn = [vr.text, vg.text, vb.text].filter(t=>t!==null);
+      log.i(`  [${m}] R:${vr.text!==null?'"'+vr.text+'"':'null'}  G:${vg.text!==null?'"'+vg.text+'"':'null'}  B:${vb.text!==null?'"'+vb.text+'"':'null'}`);
+      if(!nn.length) continue;
+      const sc = nn.length*1000 + nn.reduce((a,t)=>a+t.length,0);
+      if(!best||sc>best.sc) best={vr,vg,vb,nn,sc,m,cls,rMark};
+    }
+    if(!best) return {type:`КОЛІР·${cls.name}`, text:null};
+    const parts = [best.vr.text, best.vg.text, best.vb.text].filter(t=>t!==null);
+    const allSame = parts.every(t=>t===parts[0]);
+    const text = best.rMark ? (allSame ? parts[0] : parts.join('')) : parts.join(' · ');
+    log.ok(`[${best.m}] "${text}"`);
+    return {type:`КОЛІР·${cls.name}·${best.m}`, text};
+  }
+}
+
+// ═══════════════════════════════════════════════════════
 
 function run(img) {
   clr();
@@ -583,6 +880,18 @@ function run(img) {
     const z = result.zebra;
     setSt(`✓ T=${z.T}  mod=${z.modSize.toFixed(1)}px`, true);
     Lok(`Кружечки: ${(z.T-2)*(z.T-2)} шт.  r=${(z.modSize*0.28).toFixed(1)}px`);
+
+    // ── TAINA-декод ──
+    if(result.circles) {
+      const log2 = { h:Lh, ok:Lok, w:Lw, e:Le, i:Li };
+      const decoded = decodeCircles(result.circles, z.T, log2);
+      if(decoded && decoded.text !== null) {
+        Lok(`РЕЗУЛЬТАТ: "${decoded.text}"  [${decoded.type}]`);
+        setSt(`✓ "${decoded.text}"`, true);
+      } else {
+        Lw(`Декод: текст не зібрався  [${decoded ? decoded.type : '—'}]`);
+      }
+    }
   } else {
     setSt('✗ рамку не знайдено', false);
   }

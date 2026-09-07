@@ -39,6 +39,7 @@ canvas{width:100%;border:1px solid #1a1a1a;border-radius:3px;display:block;backg
   <h1>CAM·DEBUG</h1>
   <button class="btn" id="camBtn">▶ Камера</button>
   <button class="btn" id="snapBtn" disabled>📷 Знімок</button>
+  <button class="btn" id="saveBtn" disabled>💾 Зберегти кадр</button>
   <button class="btn on" id="autoBtn">⟳ Авто: вкл</button>
   <span id="interval-lbl">кожні 1.5с</span>
   <button class="btn" id="clrBtn">✕ Лог</button>
@@ -109,6 +110,7 @@ document.getElementById('camBtn').onclick = async () => {
     await vid.play();
     document.getElementById('camBtn').textContent = '⏹ Зупинити';
     document.getElementById('snapBtn').disabled = false;
+    document.getElementById('saveBtn').disabled = true; // активується після першого знімка
     drawLive();
     if(autoOn) startAuto();
     Lok('Камера запущена: '+vid.videoWidth+'×'+vid.videoHeight);
@@ -121,6 +123,7 @@ function stopCam(){
   vid.srcObject=null;
   document.getElementById('camBtn').textContent='▶ Камера';
   document.getElementById('snapBtn').disabled=true;
+  document.getElementById('saveBtn').disabled=true;
   setSt('зупинено',null);
 }
 
@@ -148,6 +151,19 @@ function startAuto(){
 
 document.getElementById('snapBtn').onclick=doSnap;
 
+// Зберегти останній проаналізований кадр
+let lastFrameCanvas = null;
+document.getElementById('saveBtn').onclick = () => {
+  if(!lastFrameCanvas) return;
+  lastFrameCanvas.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'cam_frame_' + Date.now() + '.png';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }, 'image/png');
+};
+
 // ── Знімок і аналіз ──
 function doSnap(){
   if(!stream||vid.readyState<2)return;
@@ -160,6 +176,10 @@ function doSnap(){
   const tmp=document.createElement('canvas');tmp.width=W;tmp.height=H;
   tmp.getContext('2d').drawImage(vid,0,0,iw,ih,0,0,W,H);
   const idata=tmp.getContext('2d',{willReadFrequently:true}).getImageData(0,0,W,H);
+
+  // Зберігаємо кадр для кнопки "Зберегти"
+  lastFrameCanvas = tmp;
+  document.getElementById('saveBtn').disabled = false;
 
   clrLog();
   Lh('КАДР '+W+'×'+H+' (оригінал '+iw+'×'+ih+')');

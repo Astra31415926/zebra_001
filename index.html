@@ -263,13 +263,17 @@ function verifyZebra(wGray,S,minContrast){
     if(T%2===0){if(valid[0].v===1||valid[T-1].v===1)T+=1;else return null;}
     return T>=5?{T}:null;
   }
+  // Зонди тільки поблизу країв — там де зебра-рамка
+  const edgeOffsets=[3,6,10,15,22,32,45,60];
   const votes=new Map();let total=0;
-  for(const frac of[0.02,0.05,0.10,0.18,0.28,0.40,0.50,0.62,0.72,0.82,0.90,0.95,0.98]){
-    const pos=Math.round(S*frac);if(pos<=0||pos>=S-1)continue;
-    const row=new Uint8Array(S);for(let x=0;x<S;x++)row[x]=wGray[pos*S+x];
-    const rh=scanLine(row);if(rh)votes.set(rh.T,(votes.get(rh.T)||0)+1);total++;
-    const col=new Uint8Array(S);for(let y=0;y<S;y++)col[y]=wGray[y*S+pos];
-    const rv=scanLine(col);if(rv)votes.set(rv.T,(votes.get(rv.T)||0)+1);total++;
+  for(const off of edgeOffsets){
+    if(off>=S/4)continue;
+    for(const pos of[off,S-1-off]){
+      const row=new Uint8Array(S);for(let x=0;x<S;x++)row[x]=wGray[pos*S+x];
+      const rh=scanLine(row);if(rh)votes.set(rh.T,(votes.get(rh.T)||0)+1);total++;
+      const col=new Uint8Array(S);for(let y=0;y<S;y++)col[y]=wGray[y*S+pos];
+      const rv=scanLine(col);if(rv)votes.set(rv.T,(votes.get(rv.T)||0)+1);total++;
+    }
   }
   if(!votes.size)return null;
   const sorted=[...votes.entries()].sort((a,b)=>b[1]-a[1]);
@@ -439,7 +443,7 @@ function pipeline(img,orient=1){
   Li(`TL(${c.tl.x},${c.tl.y}) TR(${c.tr.x},${c.tr.y}) BR(${c.br.x},${c.br.y}) BL(${c.bl.x},${c.bl.y})`);
 
   Lh('3. WARP');
-  const S=900;
+  const S=660; // ~20px на модуль при T=33
   const warped=warpPerspective(idata,w,h,c,S);
   if(!warped){Le('Гомографія не вдалася');return{ok:false,corners:c,idata,w,h};}
   Lok(`Warp → ${S}×${S}`);

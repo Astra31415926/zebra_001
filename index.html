@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZEBRA FINDER · v7.0</title>
+<title>ZEBRA FINDER · v6.2</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:#060608;color:#9a9aaa;font:11px/1.6 'Courier New',monospace}
@@ -24,13 +24,8 @@ input[type=file]{display:none}
 #tabs{display:flex;border-bottom:1px solid #141420;flex-shrink:0}
 .tab{padding:6px 14px;cursor:pointer;font:inherit;font-size:10px;letter-spacing:2px;color:#444;background:none;border:none;border-right:1px solid #141420}
 .tab.sel{color:#3a7aaa;background:#0a0a12}
-#pane-log,#pane-rgb,#pane-pipeline{flex:1;overflow-y:auto;padding:8px 10px;line-height:1.75;display:none}
-#pane-log.vis,#pane-rgb.vis,#pane-pipeline.vis{display:block}
-#pipeline-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:4px 0}
-.pipe-tile{display:flex;flex-direction:column;gap:3px}
-.pipe-tile canvas{width:100%;image-rendering:pixelated;border:1px solid #1e1e2e}
-.pipe-lbl{font-size:9px;letter-spacing:2px;text-align:center;color:#3a5a7a}
-.pipe-stat{font-size:8px;letter-spacing:1px;text-align:center;color:#4a4a6a;margin-top:1px}
+#pane-log,#pane-rgb{flex:1;overflow-y:auto;padding:8px 10px;line-height:1.75;display:none}
+#pane-log.vis,#pane-rgb.vis{display:block}
 #rgb-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:4px 0}
 .rgb-tile{display:flex;flex-direction:column;gap:3px}
 .rgb-tile canvas{width:100%;image-rendering:pixelated;border:1px solid #1e1e2e}
@@ -42,7 +37,7 @@ input[type=file]{display:none}
 <div id="app">
   <div id="left">
     <div id="topbar">
-      <h1>ZEBRA·v7.0</h1>
+      <h1>ZEBRA·v6.2</h1>
       <label class="btn">▶ Файл<input type="file" id="fin" accept="image/*"></label>
       <button class="btn" id="camBtn">◎ Камера</button>
       <button class="btn" id="capBtn" style="display:none">● Знімок</button>
@@ -57,11 +52,9 @@ input[type=file]{display:none}
   <div id="right">
     <div id="tabs">
       <button class="tab sel" data-pane="log">ДІАГНОСТИКА</button>
-      <button class="tab" data-pane="pipeline">ПАЙПЛАЙН</button>
       <button class="tab" data-pane="rgb">RGB-КАНАЛИ</button>
     </div>
     <div id="pane-log" class="vis"></div>
-    <div id="pane-pipeline"><div id="pipeline-grid"></div></div>
     <div id="pane-rgb"><div id="rgb-grid"></div></div>
   </div>
 </div>
@@ -80,35 +73,16 @@ document.querySelectorAll('.tab').forEach(btn=>{
     document.querySelectorAll('.tab').forEach(b=>b.classList.remove('sel'));
     btn.classList.add('sel');
     const p=btn.dataset.pane;
-    ['log','pipeline','rgb'].forEach(n=>document.getElementById('pane-'+n).classList.toggle('vis',n===p));
+    ['log','rgb'].forEach(n=>document.getElementById('pane-'+n).classList.toggle('vis',n===p));
   });
 });
 
 // ════════════════════════════════════════════════════════
-//  PRE-PROCESSING PIPELINE  v7.0
-//  Мета: підготувати зображення з камери (зйомка монітора)
+//  PRE-PROCESSING PIPELINE
+//  Мета: підготувати погане зображення (камера, монітор)
 //  до незмінного декодера v5.1.
 //  Декодер нижче — заморожений, не змінювати!
 // ════════════════════════════════════════════════════════
-
-// ── PIPELINE VISUALIZATION ──
-const pipelineSteps=[];
-function pipeSnap(label, idata, w, h, stat){
-  pipelineSteps.push({label, idata:new ImageData(new Uint8ClampedArray(idata.data), w, h), w, h, stat:stat||''});
-}
-function buildPipelinePanel(){
-  const grid=document.getElementById('pipeline-grid');
-  grid.innerHTML='';
-  pipelineSteps.forEach(({label,idata,w,h,stat})=>{
-    const tile=document.createElement('div');tile.className='pipe-tile';
-    const c=document.createElement('canvas');c.width=w;c.height=h;
-    c.getContext('2d').putImageData(idata,0,0);
-    const lbl=document.createElement('div');lbl.className='pipe-lbl';lbl.textContent=label;
-    const st=document.createElement('div');st.className='pipe-stat';st.textContent=stat;
-    tile.appendChild(c);tile.appendChild(lbl);tile.appendChild(st);
-    grid.appendChild(tile);
-  });
-}
 
 // ── EXIF ──
 function getExifOrientation(buf){
@@ -146,70 +120,13 @@ function applyExifRotation(img, orient){
   return c;
 }
 
-// ── СТАТИСТИКА ЗОБРАЖЕННЯ ──
-function imgStats(idata, w, h){
-  const d=idata.data, N=w*h;
-  let rSum=0,gSum=0,bSum=0,rMin=255,gMin=255,bMin=255,rMax=0,gMax=0,bMax=0;
-  for(let i=0;i<N;i++){
-    const r=d[i*4],g=d[i*4+1],b=d[i*4+2];
-    rSum+=r;gSum+=g;bSum+=b;
-    if(r<rMin)rMin=r;if(r>rMax)rMax=r;
-    if(g<gMin)gMin=g;if(g>gMax)gMax=g;
-    if(b<bMin)bMin=b;if(b>bMax)bMax=b;
-  }
-  return{
-    rMean:rSum/N,gMean:gSum/N,bMean:bSum/N,
-    rMin,rMax,gMin,gMax,bMin,bMax,
-    rRange:rMax-rMin,gRange:gMax-gMin,bRange:bMax-bMin
-  };
-}
-
-// ── КОРЕКЦІЯ ГАМИ (sRGB→лінійний→sRGB) ──
-// Монітор дає sRGB. Для коректної обробки пікселів треба лінеаризувати,
-// потім повернути. Також компенсуємо перевищення яскравості монітора (gamma>1).
-function gammaCorrect(idata, w, h, gamma=1.15){
-  // gamma>1 → освітлює (компенсує темні монітори)
-  // gamma<1 → затемнює (компенсує перегорілі)
-  const out=new ImageData(w,h);
-  const lut=new Uint8Array(256);
-  for(let i=0;i<256;i++) lut[i]=Math.round(Math.pow(i/255,1/gamma)*255);
-  for(let i=0;i<w*h;i++){
-    out.data[i*4]  =lut[idata.data[i*4]];
-    out.data[i*4+1]=lut[idata.data[i*4+1]];
-    out.data[i*4+2]=lut[idata.data[i*4+2]];
-    out.data[i*4+3]=255;
-  }
-  return out;
-}
-
-// ── WHITE BALANCE (gray world) ──
-// Монітор може давати колірний зсув. Нормалізуємо середнє кожного каналу до сірого.
-function whiteBalance(idata, w, h){
-  const st=imgStats(idata,w,h);
-  const avg=(st.rMean+st.gMean+st.bMean)/3;
-  const scR=st.rMean>1?avg/st.rMean:1;
-  const scG=st.gMean>1?avg/st.gMean:1;
-  const scB=st.bMean>1?avg/st.bMean:1;
-  // Якщо баланс вже нормальний (<5% відхилення), пропускаємо
-  const maxDev=Math.max(Math.abs(scR-1),Math.abs(scG-1),Math.abs(scB-1));
-  if(maxDev<0.05) return{out:idata,scR:1,scG:1,scB:1,skipped:true};
-  const out=new ImageData(w,h);
-  const d=idata.data;
-  for(let i=0;i<w*h;i++){
-    out.data[i*4]  =Math.max(0,Math.min(255,Math.round(d[i*4]*scR)));
-    out.data[i*4+1]=Math.max(0,Math.min(255,Math.round(d[i*4+1]*scG)));
-    out.data[i*4+2]=Math.max(0,Math.min(255,Math.round(d[i*4+2]*scB)));
-    out.data[i*4+3]=255;
-  }
-  return{out,scR,scG,scB,skipped:false};
-}
-
-// ── GAUSSIAN BLUR (separable, ядро [1,2,1]) ──
+// ── ШУМОЗАГЛУШЕННЯ: Gaussian blur (separable, ядро 3×3) ──
 function gaussianBlur(idata, w, h, passes=1){
   const k=[1,2,1], ksum=4;
   let d=new Float32Array(idata.data);
   for(let p=0;p<passes;p++){
     const tmp=new Float32Array(d.length);
+    // horizontal
     for(let y=0;y<h;y++) for(let x=0;x<w;x++){
       for(let c=0;c<3;c++){
         let s=0;
@@ -218,6 +135,7 @@ function gaussianBlur(idata, w, h, passes=1){
       }
       tmp[(y*w+x)*4+3]=255;
     }
+    // vertical
     const tmp2=new Float32Array(tmp.length);
     for(let y=0;y<h;y++) for(let x=0;x<w;x++){
       for(let c=0;c<3;c++){
@@ -234,27 +152,28 @@ function gaussianBlur(idata, w, h, passes=1){
   return out;
 }
 
-// ── UNSHARP MASK ──
-function unsharpMask(idata, w, h, amount=0.7){
+// ── РІЗКІСТЬ: Unsharp mask ──
+function unsharpMask(idata, w, h, amount=0.6){
   const blurred=gaussianBlur(idata,w,h,1);
   const out=new ImageData(w,h);
-  let sharpDelta=0;
   for(let i=0;i<w*h*4;i+=4){
     for(let c=0;c<3;c++){
       const orig=idata.data[i+c], blur=blurred.data[i+c];
-      const v=Math.max(0,Math.min(255,Math.round(orig+amount*(orig-blur))));
-      sharpDelta+=Math.abs(v-orig);
-      out.data[i+c]=v;
+      out.data[i+c]=Math.max(0,Math.min(255,Math.round(orig+amount*(orig-blur))));
     }
     out.data[i+3]=255;
   }
-  return{out, sharpDelta:sharpDelta/(w*h*3)};
+  return out;
 }
 
-// ── ЛОКАЛЬНИЙ КОНТРАСТ (CLAHE-подібний через integral image) ──
+// ── КОНТРАСТ: CLAHE-подібний (локальна нормалізація) ──
 function localContrast(idata, w, h, radius=40){
+  // Спрощений варіант: для кожного пікселя знаходимо локальний min/max
+  // через integral image і розтягуємо діапазон
   const gray=new Uint8Array(w*h);
   for(let i=0;i<w*h;i++) gray[i]=(77*idata.data[i*4]+150*idata.data[i*4+1]+29*idata.data[i*4+2])>>8;
+
+  // Integral image для gray
   const ii=new Float32Array(w*h);
   const ii2=new Float32Array(w*h);
   for(let y=0;y<h;y++) for(let x=0;x<w;x++){
@@ -262,65 +181,35 @@ function localContrast(idata, w, h, radius=40){
     ii[y*w+x]=v+(x>0?ii[y*w+x-1]:0)+(y>0?ii[(y-1)*w+x]:0)-(x>0&&y>0?ii[(y-1)*w+x-1]:0);
     ii2[y*w+x]=v*v+(x>0?ii2[y*w+x-1]:0)+(y>0?ii2[(y-1)*w+x]:0)-(x>0&&y>0?ii2[(y-1)*w+x-1]:0);
   }
+
   const out=new ImageData(w,h);
-  let stdSum=0, cnt=0;
   for(let y=0;y<h;y++) for(let x=0;x<w;x++){
     const x1=Math.max(0,x-radius),x2=Math.min(w-1,x+radius);
     const y1=Math.max(0,y-radius),y2=Math.min(h-1,y+radius);
-    const n=(x2-x1+1)*(y2-y1+1);
+    const cnt=(x2-x1+1)*(y2-y1+1);
     const sm=ii[y2*w+x2]-(x1?ii[y2*w+x1-1]:0)-(y1?ii[(y1-1)*w+x2]:0)+(x1&&y1?ii[(y1-1)*w+x1-1]:0);
     const sm2=ii2[y2*w+x2]-(x1?ii2[y2*w+x1-1]:0)-(y1?ii2[(y1-1)*w+x2]:0)+(x1&&y1?ii2[(y1-1)*w+x1-1]:0);
-    const mean=sm/n;
-    const std=Math.sqrt(Math.max(0,sm2/n-mean*mean));
-    const scale=std>8?60/std:1;
+    const mean=sm/cnt;
+    const std=Math.sqrt(Math.max(0,sm2/cnt-mean*mean));
+    const scale=std>8?60/std:1; // нормалізуємо до std=60
     const i=y*w+x;
-    stdSum+=std;cnt++;
     for(let c=0;c<3;c++){
       const ch=idata.data[i*4+c];
-      out.data[i*4+c]=Math.max(0,Math.min(255,Math.round(128+(ch-mean)*scale)));
+      const norm=Math.round(128+(ch-mean)*scale);
+      out.data[i*4+c]=Math.max(0,Math.min(255,norm));
     }
     out.data[i*4+3]=255;
   }
-  return{out, meanStd:stdSum/cnt};
-}
-
-// ── OTSU THRESHOLD ──
-function otsuCh(ch){
-  const hist=new Int32Array(256);for(const v of ch)hist[v]++;
-  const N=ch.length;let sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];
-  let wb=0,sb=0,best=0,bestT=128;
-  for(let t=0;t<256;t++){wb+=hist[t];if(!wb)continue;const wf=N-wb;if(!wf)break;sb+=t*hist[t];const mb=sb/wb,mf=(sum-sb)/wf,v=wb*wf*(mb-mf)*(mb-mf);if(v>best){best=v;bestT=t;}}
-  return bestT;
-}
-
-// ── ОЦІНКА ЯКОСТІ ЗОБРАЖЕННЯ (для монітора) ──
-// Повертає об'єкт з рекомендаціями
-function assessCameraInput(idata, w, h){
-  const st=imgStats(idata,w,h);
-  const gray=new Uint8Array(w*h);
-  for(let i=0;i<w*h;i++) gray[i]=(77*idata.data[i*4]+150*idata.data[i*4+1]+29*idata.data[i*4+2])>>8;
-  // Laplacian variance → різкість
-  let lapSum=0, lapN=0;
-  for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++){
-    const v=gray[y*w+x];
-    const lap=4*v-gray[(y-1)*w+x]-gray[(y+1)*w+x]-gray[y*w+x-1]-gray[y*w+x+1];
-    lapSum+=lap*lap;lapN++;
-  }
-  const sharpness=lapSum/lapN;
-  // Контраст (std сірого)
-  let gSum=0;for(const v of gray)gSum+=v;const gMean=gSum/gray.length;
-  let gVar=0;for(const v of gray)gVar+=(v-gMean)*(v-gMean);const contrast=Math.sqrt(gVar/gray.length);
-  // WB deviation
-  const wbDev=Math.max(Math.abs(st.rMean-st.gMean),Math.abs(st.gMean-st.bMean),Math.abs(st.rMean-st.bMean));
-  return{sharpness,contrast,wbDev,st};
+  return out;
 }
 
 // ── ГОЛОВНА ФУНКЦІЯ ПРЕПРОЦЕСИНГУ ──
+// Вхід: HTMLImageElement + EXIF orient
+// Вихід: ImageData з бінаризованими каналами R/G/B
 function preprocess(img, orient, maxSide=900){
-  pipelineSteps.length=0; // очищаємо кроки
-  Lh('PRE-PROCESSING v7.0');
+  Lh('PRE-PROCESSING');
 
-  // ── КРОК 0: EXIF + RESIZE ──
+  // 1. EXIF rotation
   let src;
   if(orient&&orient!==1){
     src=applyExifRotation(img,orient);
@@ -330,79 +219,41 @@ function preprocess(img, orient, maxSide=900){
     src.width=img.naturalWidth; src.height=img.naturalHeight;
     src.getContext('2d').drawImage(img,0,0);
   }
+
+  // 2. Resize
   let w=src.width, h=src.height;
-  const origW=w, origH=h;
   if(Math.max(w,h)>maxSide){const s=maxSide/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
-  const c0=document.createElement('canvas');c0.width=w;c0.height=h;
-  c0.getContext('2d').drawImage(src,0,0,w,h);
-  const step0=c0.getContext('2d').getImageData(0,0,w,h);
-  Li('  Оригінал: '+origW+'×'+origH+' → resize: '+w+'×'+h);
-  pipeSnap('0· ОРИГІНАЛ', step0, w, h, w+'×'+h);
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  c.getContext('2d').drawImage(src,0,0,w,h);
+  const idata=c.getContext('2d').getImageData(0,0,w,h);
+  Li('  Розмір: '+w+'×'+h);
 
-  // ── ОЦІНКА ЯКОСТІ ВХІДНОГО ──
-  const assess=assessCameraInput(step0,w,h);
-  const sharpnessStr='різкість='+Math.round(assess.sharpness);
-  const contrastStr='контраст='+Math.round(assess.contrast);
-  const wbStr='WB-зсув='+Math.round(assess.wbDev);
-  Li('  Оцінка входу: '+sharpnessStr+' '+contrastStr+' '+wbStr);
-  Li('  Яскравість: R='+Math.round(assess.st.rMean)+' G='+Math.round(assess.st.gMean)+' B='+Math.round(assess.st.bMean));
-  if(assess.sharpness<50) Lw('  ⚠ Зображення розмите (різкість<50) — може бути камера в русі або поза фокусом');
-  if(assess.contrast<20) Lw('  ⚠ Низький контраст (<20) — поганий рівень освітлення або пересвіт монітора');
-  if(assess.wbDev>30) Lw('  ⚠ Помітний колірний зсув (WB-зсув='+Math.round(assess.wbDev)+') — монітор із нестандартною температурою');
+  // 3. Легкий blur — прибирає муар і піксельний шум монітора
+  const blurred=gaussianBlur(idata,w,h,1);
+  Li('  → Gaussian blur 1px (придушення муару)');
 
-  // ── КРОК 1: GAMMA CORRECTION ──
-  // Монітор дає sRGB з gamma~2.2. Камера може додати ще свою.
-  // Легкий gamma=1.15 компенсує трохи темні знімки екрана.
-  const gammaVal=1.15;
-  const step1=gammaCorrect(step0,w,h,gammaVal);
-  Li('  [1] Gamma correction: γ='+gammaVal);
-  pipeSnap('1· GAMMA ×'+gammaVal, step1, w, h, 'γ='+gammaVal);
+  // 4. Бінаризація по каналах R, G, B окремо (Otsu)
+  //    Кожен канал → монохромне зображення → Otsu поріг → 0 або 255
+  //    Потім збираємо назад в ImageData де R=bin(R), G=bin(G), B=bin(B)
+  const d=blurred.data;
 
-  // ── КРОК 2: WHITE BALANCE ──
-  const wb=whiteBalance(step1,w,h);
-  const step2=wb.out;
-  if(wb.skipped){
-    Li('  [2] White balance: пропущено (зсув <5%)');
-  } else {
-    Li('  [2] White balance: R×'+wb.scR.toFixed(3)+' G×'+wb.scG.toFixed(3)+' B×'+wb.scB.toFixed(3));
-  }
-  pipeSnap('2· WHITE BALANCE', step2, w, h,
-    wb.skipped?'пропущено':
-    'R×'+wb.scR.toFixed(2)+' G×'+wb.scG.toFixed(2)+' B×'+wb.scB.toFixed(2));
-
-  // ── КРОК 3: BLUR (придушення муару та піксельного шуму монітора) ──
-  // 1 прохід Gaussian 3×3 — прибирає муар пікселів монітора без руйнування структури
-  const step3=gaussianBlur(step2,w,h,1);
-  Li('  [3] Gaussian blur ×1 (придушення муару)');
-  pipeSnap('3· BLUR (муар)', step3, w, h, 'Gauss 3×3 ×1');
-
-  // ── КРОК 4: UNSHARP MASK (відновлення різкості після blur) ──
-  const usm=unsharpMask(step3,w,h,0.7);
-  const step4=usm.out;
-  Li('  [4] Unsharp mask: amount=0.7  Δ='+usm.sharpDelta.toFixed(2)+'/px');
-  pipeSnap('4· SHARPEN', step4, w, h, 'USM a=0.7 Δ='+usm.sharpDelta.toFixed(1));
-
-  // ── КРОК 5: LOCAL CONTRAST (CLAHE-подібне) ──
-  const lc=localContrast(step4,w,h,40);
-  const step5=lc.out;
-  Li('  [5] Local contrast: radius=40  meanStd='+lc.meanStd.toFixed(1));
-  pipeSnap('5· CONTRAST', step5, w, h, 'r=40 σ̄='+lc.meanStd.toFixed(1));
-
-  // ── КРОК 6: OTSU BINARIZATION per channel ──
-  const d5=step5.data;
+  // Витягуємо канали
   const chR=new Uint8Array(w*h), chG=new Uint8Array(w*h), chB=new Uint8Array(w*h);
-  for(let i=0;i<w*h;i++){chR[i]=d5[i*4];chG[i]=d5[i*4+1];chB[i]=d5[i*4+2];}
+  for(let i=0;i<w*h;i++){chR[i]=d[i*4];chG[i]=d[i*4+1];chB[i]=d[i*4+2];}
+
+  // Otsu для кожного каналу
+  function otsuCh(ch){
+    const hist=new Int32Array(256);for(const v of ch)hist[v]++;
+    const N=ch.length;let sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];
+    let wb=0,sb=0,best=0,bestT=128;
+    for(let t=0;t<256;t++){wb+=hist[t];if(!wb)continue;const wf=N-wb;if(!wf)break;sb+=t*hist[t];const mb=sb/wb,mf=(sum-sb)/wf,v=wb*wf*(mb-mf)*(mb-mf);if(v>best){best=v;bestT=t;}}
+    return bestT;
+  }
+
   const tR=otsuCh(chR), tG=otsuCh(chG), tB=otsuCh(chB);
+  Li('  Otsu поріг: R='+tR+' G='+tG+' B='+tB);
 
-  // Підрахуємо % білих пікселів по каналах (для діагностики)
-  let rW=0,gW=0,bW=0;
-  for(let i=0;i<w*h;i++){if(chR[i]>tR)rW++;if(chG[i]>tG)gW++;if(chB[i]>tB)bW++;}
-  const pct=n=>((n/(w*h))*100).toFixed(1)+'%';
-  Li('  [6] Otsu поріг: R='+tR+' G='+tG+' B='+tB);
-  Li('      % білого: R='+pct(rW)+' G='+pct(gW)+' B='+pct(bW));
-  if(tR<30||tG<30||tB<30) Lw('  ⚠ Дуже низький поріг (<30) — можлива пересвітленість каналу');
-  if(tR>220||tG>220||tB>220) Lw('  ⚠ Дуже високий поріг (>220) — можлива темрява каналу');
-
+  // Бінаризуємо: значення вище порогу → 255, нижче → 0
   const out=new ImageData(w,h);
   for(let i=0;i<w*h;i++){
     out.data[i*4]  =chR[i]>tR?255:0;
@@ -410,10 +261,8 @@ function preprocess(img, orient, maxSide=900){
     out.data[i*4+2]=chB[i]>tB?255:0;
     out.data[i*4+3]=255;
   }
-  Li('  [6] → Бінаризація завершена');
-  pipeSnap('6· OTSU BIN', out, w, h, 'R>'+tR+' G>'+tG+' B>'+tB);
 
-  Lok('Pre-processing: 6 кроків, вихід '+w+'×'+h);
+  Li('  → Бінаризація R/G/B по Otsu завершена');
   return{idata:out,w,h};
 }
 
@@ -735,7 +584,6 @@ function processImage(img,orient){
   mainCnv.style.display='block';
   setSt('обробка…',null);
   const{idata,w,h}=preprocess(img,orient,900);
-  buildPipelinePanel();
   run(idata,w,h);
 }
 

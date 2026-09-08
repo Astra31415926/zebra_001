@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZEBRA FINDER · v6.2</title>
+<title>ZEBRA FINDER · v6.3</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:#060608;color:#9a9aaa;font:11px/1.6 'Courier New',monospace}
@@ -37,7 +37,7 @@ input[type=file]{display:none}
 <div id="app">
   <div id="left">
     <div id="topbar">
-      <h1>ZEBRA·v6.2</h1>
+      <h1>ZEBRA·v6.3</h1>
       <label class="btn">▶ Файл<input type="file" id="fin" accept="image/*"></label>
       <button class="btn" id="camBtn">◎ Камера</button>
       <button class="btn" id="capBtn" style="display:none">● Знімок</button>
@@ -205,7 +205,7 @@ function localContrast(idata, w, h, radius=40){
 
 // ── ГОЛОВНА ФУНКЦІЯ ПРЕПРОЦЕСИНГУ ──
 // Вхід: HTMLImageElement + EXIF orient
-// Вихід: ImageData готова для декодера (900px max)
+// Вихід: ImageData з бінаризованими каналами R/G/B
 function preprocess(img, orient, maxSide=900){
   Lh('PRE-PROCESSING');
 
@@ -220,59 +220,50 @@ function preprocess(img, orient, maxSide=900){
     src.getContext('2d').drawImage(img,0,0);
   }
 
-  // 2. Resize до maxSide
+  // 2. Resize
   let w=src.width, h=src.height;
-  if(Math.max(w,h)>maxSide){
-    const s=maxSide/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s);
-  }
-  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  if(Math.max(w,h)>maxSide){const s=maxSide/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
+  const c=document.createElement('canvas');c.width=w;c.height=h;
   c.getContext('2d').drawImage(src,0,0,w,h);
-  let idata=c.getContext('2d').getImageData(0,0,w,h);
-  Li(`  Розмір: ${w}×${h}`);
+  const idata=c.getContext('2d').getImageData(0,0,w,h);
+  Li('  Розмір: '+w+'×'+h);
 
-  // 3. Оцінка якості вхідного зображення
-  const gray0=new Uint8Array(w*h);
-  for(let i=0;i<w*h;i++) gray0[i]=(77*idata.data[i*4]+150*idata.data[i*4+1]+29*idata.data[i*4+2])>>8;
-  // Локальна дисперсія як міра різкості
-  let varSum=0;
-  const step=4;
-  let cnt=0;
-  for(let y=1;y<h-1;y+=step) for(let x=1;x<w-1;x+=step){
-    const v=gray0[y*w+x];
-    const lap=Math.abs(4*v-gray0[(y-1)*w+x]-gray0[(y+1)*w+x]-gray0[y*w+x-1]-gray0[y*w+x+1]);
-    varSum+=lap; cnt++;
-  }
-  const sharpness=varSum/cnt;
-  Li(`  Різкість (Laplacian): ${sharpness.toFixed(1)}`);
+  // 3. Легкий blur — прибирає муар і піксельний шум монітора
+  const blurred=gaussianBlur(idata,w,h,1);
+  Li('  → Gaussian blur 1px (придушення муару)');
 
-  // 4. Вибір стратегії залежно від якості
-  const isBlurry=sharpness<8;
-  const isLowContrast=(() => {
-    let mn=255,mx=0;
-    for(const v of gray0){if(v<mn)mn=v;if(v>mx)mx=v;}
-    return mx-mn<80;
-  })();
+  // 4. Бінаризація по каналах R, G, B окремо (Otsu)
+  //    Кожен канал → монохромне зображення → Otsu поріг → 0 або 255
+  //    Потім збираємо назад в ImageData де R=bin(R), G=bin(G), B=bin(B)
+  const d=blurred.data;
 
-  Li(`  Стан: ${isBlurry?'РОЗМИТЕ':'різке'} / ${isLowContrast?'НИЗЬКИЙ контраст':'контраст OK'}`);
+  // Витягуємо канали
+  const chR=new Uint8Array(w*h), chG=new Uint8Array(w*h), chB=new Uint8Array(w*h);
+  for(let i=0;i<w*h;i++){chR[i]=d[i*4];chG[i]=d[i*4+1];chB[i]=d[i*4+2];}
 
-  // 5. Застосовуємо фільтри
-  if(isBlurry){
-    // Розмите фото з камери: спочатку unsharp mask щоб відновити краї
-    idata=unsharpMask(idata,w,h,0.8);
-    Li('  → Unsharp mask (0.8)');
-  } else {
-    // Різке але можливо є муар від монітора: легкий blur щоб прибрати піксельний шум
-    idata=gaussianBlur(idata,w,h,1);
-    Li('  → Gaussian blur 1px (придушення муару)');
+  // Otsu для кожного каналу
+  function otsuCh(ch){
+    const hist=new Int32Array(256);for(const v of ch)hist[v]++;
+    const N=ch.length;let sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];
+    let wb=0,sb=0,best=0,bestT=128;
+    for(let t=0;t<256;t++){wb+=hist[t];if(!wb)continue;const wf=N-wb;if(!wf)break;sb+=t*hist[t];const mb=sb/wb,mf=(sum-sb)/wf,v=wb*wf*(mb-mf)*(mb-mf);if(v>best){best=v;bestT=t;}}
+    return bestT;
   }
 
-  if(isLowContrast){
-    idata=localContrast(idata,w,h,40);
-    Li('  → Local contrast (CLAHE-like, r=40)');
+  const tR=otsuCh(chR), tG=otsuCh(chG), tB=otsuCh(chB);
+  Li('  Otsu поріг: R='+tR+' G='+tG+' B='+tB);
+
+  // Бінаризуємо: значення вище порогу → 255, нижче → 0
+  const out=new ImageData(w,h);
+  for(let i=0;i<w*h;i++){
+    out.data[i*4]  =chR[i]>tR?255:0;
+    out.data[i*4+1]=chG[i]>tG?255:0;
+    out.data[i*4+2]=chB[i]>tB?255:0;
+    out.data[i*4+3]=255;
   }
 
-  Li(`  Pre-processing завершено`);
-  return{idata,w,h};
+  Li('  → Бінаризація R/G/B по Otsu завершена');
+  return{idata:out,w,h};
 }
 
 // ════════════════════════════════════════════════════════

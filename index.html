@@ -203,9 +203,11 @@ function localContrast(idata, w, h, radius=40){
   return out;
 }
 
-// ── ГОЛОВНА ФУНКЦІЯ ПРЕПРОЦЕСИНГУ (SAUVOLA) ──
+// ── ГОЛОВНА ФУНКЦІЯ ПРЕПРОЦЕСИНГУ ──
+// Вхід: HTMLImageElement + EXIF orient
+// Вихід: ImageData з бінаризованими каналами R/G/B
 function preprocess(img, orient, maxSide=900){
-  Lh('PRE-PROCESSING (SAUVOLA)');
+  Lh('PRE-PROCESSING');
 
   // 1. EXIF rotation
   let src;
@@ -217,63 +219,6 @@ function preprocess(img, orient, maxSide=900){
     src.width=img.naturalWidth; src.height=img.naturalHeight;
     src.getContext('2d').drawImage(img,0,0);
   }
-
-  // 2. Resize
-  let w=src.width, h=src.height;
-  if(Math.max(w,h)>maxSide){const s=maxSide/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
-  const c=document.createElement('canvas');c.width=w;c.height=h;
-  c.getContext('2d').drawImage(src,0,0,w,h);
-  const idata=c.getContext('2d').getImageData(0,0,w,h);
-  Li('  Розмір: '+w+'×'+h);
-
-  // 3. Gaussian blur (придушення муару монітора)
-  const blurred=gaussianBlur(idata,w,h,1);
-  Li('  → Gaussian blur 1px');
-
-  const d=blurred.data;
-  const chR=new Uint8Array(w*h), chG=new Uint8Array(w*h), chB=new Uint8Array(w*h);
-  for(let i=0;i<w*h;i++){chR[i]=d[i*4];chG[i]=d[i*4+1];chB[i]=d[i*4+2];}
-
-  // 4. Integral images для швидкого розрахунку Sauvola (window radius r=12, k=0.34)
-  function sauvolaCh(ch, R=12, k=0.34){
-    const ii=new Float32Array(w*h);
-    const ii2=new Float32Array(w*h);
-    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
-      const v=ch[y*w+x];
-      ii[y*w+x]=v+(x>0?ii[y*w+x-1]:0)+(y>0?ii[(y-1)*w+x]:0)-(x>0&&y>0?ii[(y-1)*w+x-1]:0);
-      ii2[y*w+x]=v*v+(x>0?ii2[y*w+x-1]:0)+(y>0?ii2[(y-1)*w+x]:0)-(x>0&&y>0?ii2[(y-1)*w+x-1]:0);
-    }
-    const bin=new Uint8Array(w*h);
-    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
-      const x1=Math.max(0,x-R), x2=Math.min(w-1,x+R);
-      const y1=Math.max(0,y-R), y2=Math.min(h-1,y+R);
-      const cnt=(x2-x1+1)*(y2-y1+1);
-      const sum=ii[y2*w+x2]-(x1?ii[y2*w+x1-1]:0)-(y1?ii[(y1-1)*w+x2]:0)+(x1&&y1?ii[(y1-1)*w+x1-1]:0);
-      const sum2=ii2[y2*w+x2]-(x1?ii2[y2*w+x1-1]:0)-(y1?ii2[(y1-1)*w+x2]:0)+(x1&&y1?ii2[(y1-1)*w+x1-1]:0);
-      const mean=sum/cnt;
-      const variance=Math.max(0,sum2/cnt-mean*mean);
-      const std=Math.sqrt(variance);
-      const threshold=mean*(1+k*(std/128-1));
-      bin[y*w+x]=ch[y*w+x]>threshold?255:0;
-    }
-    return bin;
-  }
-
-  const bR=sauvolaCh(chR);
-  const bG=sauvolaCh(chG);
-  const bB=sauvolaCh(chB);
-
-  const out=new ImageData(w,h);
-  for(let i=0;i<w*h;i++){
-    out.data[i*4]   =bR[i];
-    out.data[i*4+1]=bG[i];
-    out.data[i*4+2]=bB[i];
-    out.data[i*4+3]=255;
-  }
-
-  Li('  → Адаптивна бінаризація Sauvola завершена');
-  return{idata:out,w,h};
-}
 
   // 2. Resize
   let w=src.width, h=src.height;
@@ -695,3 +640,4 @@ document.getElementById('stopBtn').addEventListener('click',()=>{
 </script>
 </body>
 </html>
+

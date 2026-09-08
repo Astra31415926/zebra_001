@@ -3,30 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZEBRA FINDER · v6.1</title>
+<title>ZEBRA FINDER · v6.2</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:#060608;color:#9a9aaa;font:11px/1.6 'Courier New',monospace}
 #app{display:grid;grid-template-columns:460px 1fr;height:100vh;overflow:hidden}
-
 #left{display:flex;flex-direction:column;border-right:1px solid #141420;overflow:hidden}
 #topbar{padding:8px 10px;border-bottom:1px solid #141420;display:flex;gap:5px;align-items:center;flex-shrink:0;flex-wrap:wrap}
 h1{font-size:10px;letter-spacing:3px;color:#3a7aaa;margin-right:4px}
 .btn{background:#0e0e16;border:1px solid #1e1e2e;color:#6a6a8a;padding:4px 10px;cursor:pointer;font:inherit;letter-spacing:1px}
 .btn:hover{border-color:#3a7aaa;color:#ccc}
 input[type=file]{display:none}
-
 #canvas-wrap{flex:1;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center;position:relative}
 #cnv{display:block;max-width:100%;max-height:100%;image-rendering:pixelated}
-/* live video overlay */
-#vidWrap{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:#000}
+#vidWrap{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:#000}
 #vid{max-width:100%;max-height:100%;display:block}
-#vidCorner{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
-
 #status-bar{flex-shrink:0;padding:5px 10px;border-top:1px solid #141420;font-size:10px;letter-spacing:2px;min-height:24px}
 #status-bar span{font-weight:700;font-size:12px}
-
-/* RIGHT */
 #right{display:flex;flex-direction:column;overflow:hidden}
 #tabs{display:flex;border-bottom:1px solid #141420;flex-shrink:0}
 .tab{padding:6px 14px;cursor:pointer;font:inherit;font-size:10px;letter-spacing:2px;color:#444;background:none;border:none;border-right:1px solid #141420}
@@ -44,7 +37,7 @@ input[type=file]{display:none}
 <div id="app">
   <div id="left">
     <div id="topbar">
-      <h1>ZEBRA·v6.1</h1>
+      <h1>ZEBRA·v6.2</h1>
       <label class="btn">▶ Файл<input type="file" id="fin" accept="image/*"></label>
       <button class="btn" id="camBtn">◎ Камера</button>
       <button class="btn" id="capBtn" style="display:none">● Знімок</button>
@@ -52,10 +45,7 @@ input[type=file]{display:none}
     </div>
     <div id="canvas-wrap">
       <canvas id="cnv"></canvas>
-      <div id="vidWrap">
-        <video id="vid" autoplay playsinline muted></video>
-        <canvas id="vidCorner"></canvas>
-      </div>
+      <div id="vidWrap"><video id="vid" autoplay playsinline muted></video></div>
     </div>
     <div id="status-bar"><span id="st" style="color:#2a2a3a">— очікування —</span></div>
   </div>
@@ -74,11 +64,10 @@ input[type=file]{display:none}
 // ── LOG ──
 const logEl=document.getElementById('pane-log');
 const aL=(m,c)=>{const d=document.createElement('div');d.textContent=m;if(c)d.className=c;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;};
-const Lh=m=>aL('── '+m,'lh'), Lok=m=>aL('✓ '+m,'lok'), Lw=m=>aL('⚠ '+m,'lw'), Le=m=>aL('✗ '+m,'le'), Li=m=>aL(m,'li');
+const Lh=m=>aL('── '+m,'lh'),Lok=m=>aL('✓ '+m,'lok'),Lw=m=>aL('⚠ '+m,'lw'),Le=m=>aL('✗ '+m,'le'),Li=m=>aL(m,'li');
 const clrLog=()=>{logEl.innerHTML='';};
 const setSt=(t,ok)=>{const el=document.getElementById('st');el.textContent=t;el.style.color=ok===true?'#55eb5a':ok===false?'#eb5555':'#888';};
 
-// ── TABS ──
 document.querySelectorAll('.tab').forEach(btn=>{
   btn.addEventListener('click',()=>{
     document.querySelectorAll('.tab').forEach(b=>b.classList.remove('sel'));
@@ -87,6 +76,13 @@ document.querySelectorAll('.tab').forEach(btn=>{
     ['log','rgb'].forEach(n=>document.getElementById('pane-'+n).classList.toggle('vis',n===p));
   });
 });
+
+// ════════════════════════════════════════════════════════
+//  PRE-PROCESSING PIPELINE
+//  Мета: підготувати погане зображення (камера, монітор)
+//  до незмінного декодера v5.1.
+//  Декодер нижче — заморожений, не змінювати!
+// ════════════════════════════════════════════════════════
 
 // ── EXIF ──
 function getExifOrientation(buf){
@@ -100,7 +96,7 @@ function getExifOrientation(buf){
       const le=v.getUint16(off+10)===0x4949;
       const ifd=off+10+v.getUint32(off+14,le);
       const n=v.getUint16(ifd,le);
-      for(let i=0;i<n;i++){if(v.getUint16(ifd+2+i*12,le)===0x0112)return v.getUint16(ifd+2+i*12+8,le);}
+      for(let i=0;i<n;i++)if(v.getUint16(ifd+2+i*12,le)===0x0112)return v.getUint16(ifd+2+i*12+8,le);
       return 1;
     }
     if((m&0xFF00)!==0xFF00)break;
@@ -109,63 +105,203 @@ function getExifOrientation(buf){
   return 1;
 }
 
-function fixOrientation(img,orient){
-  const w=img.naturalWidth,h=img.naturalHeight;
+function applyExifRotation(img, orient){
+  const w=img.naturalWidth, h=img.naturalHeight;
   const swap=orient>=5&&orient<=8;
-  const c=document.createElement('canvas');c.width=swap?h:w;c.height=swap?w:h;
+  const c=document.createElement('canvas');
+  c.width=swap?h:w; c.height=swap?w:h;
   const ctx=c.getContext('2d');
-  const M=[[],[1,0,0,1,0,0],[-1,0,0,1,w,0],[-1,0,0,-1,w,h],[1,0,0,-1,0,h],[0,1,1,0,0,0],[0,1,-1,0,h,0],[0,-1,-1,0,h,w],[0,-1,1,0,0,w]];
-  const t=M[orient]||M[1];ctx.transform(t[0],t[1],t[2],t[3],t[4],t[5]);ctx.drawImage(img,0,0);return c;
+  const M=[[],[1,0,0,1,0,0],[-1,0,0,1,w,0],[-1,0,0,-1,w,h],
+            [1,0,0,-1,0,h],[0,1,1,0,0,0],[0,1,-1,0,h,0],
+            [0,-1,-1,0,h,w],[0,-1,1,0,0,w]];
+  const t=M[orient]||M[1];
+  ctx.transform(t[0],t[1],t[2],t[3],t[4],t[5]);
+  ctx.drawImage(img,0,0);
+  return c;
 }
 
-function srcCanvas(img,orient,maxSide=900){
-  let src=orient&&orient!==1?fixOrientation(img,orient):(() =>{const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);return c;})();
-  let w=src.width,h=src.height;
-  if(Math.max(w,h)>maxSide){const s=maxSide/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
-  const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(src,0,0,w,h);
-  return{idata:c.getContext('2d').getImageData(0,0,w,h),w,h};
-}
-
-// ── IMAGE UTILS ──
-function toGray(idata,w,h){const d=idata.data,g=new Uint8Array(w*h);for(let i=0;i<w*h;i++)g[i]=(77*d[i*4]+150*d[i*4+1]+29*d[i*4+2])>>8;return g;}
-function toGrayRaw(data,w,h){const g=new Uint8Array(w*h);for(let i=0;i<w*h;i++)g[i]=(77*data[i*4]+150*data[i*4+1]+29*data[i*4+2])>>8;return g;}
-
-function gaussBlur1(g,w,h){
-  const k=[1,2,1],tmp=new Uint8Array(w*h),out=new Uint8Array(w*h);
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){let s=0;for(let d=-1;d<=1;d++)s+=g[y*w+Math.max(0,Math.min(w-1,x+d))]*k[d+1];tmp[y*w+x]=s/4;}
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){let s=0;for(let d=-1;d<=1;d++)s+=tmp[Math.max(0,Math.min(h-1,y+d))*w+x]*k[d+1];out[y*w+x]=s/4;}
+// ── ШУМОЗАГЛУШЕННЯ: Gaussian blur (separable, ядро 3×3) ──
+function gaussianBlur(idata, w, h, passes=1){
+  const k=[1,2,1], ksum=4;
+  let d=new Float32Array(idata.data);
+  for(let p=0;p<passes;p++){
+    const tmp=new Float32Array(d.length);
+    // horizontal
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      for(let c=0;c<3;c++){
+        let s=0;
+        for(let dx=-1;dx<=1;dx++) s+=d[(y*w+Math.max(0,Math.min(w-1,x+dx)))*4+c]*k[dx+1];
+        tmp[(y*w+x)*4+c]=s/ksum;
+      }
+      tmp[(y*w+x)*4+3]=255;
+    }
+    // vertical
+    const tmp2=new Float32Array(tmp.length);
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      for(let c=0;c<3;c++){
+        let s=0;
+        for(let dy=-1;dy<=1;dy++) s+=tmp[(Math.max(0,Math.min(h-1,y+dy))*w+x)*4+c]*k[dy+1];
+        tmp2[(y*w+x)*4+c]=s/ksum;
+      }
+      tmp2[(y*w+x)*4+3]=255;
+    }
+    d=tmp2;
+  }
+  const out=new ImageData(w,h);
+  for(let i=0;i<d.length;i++) out.data[i]=Math.round(Math.max(0,Math.min(255,d[i])));
   return out;
 }
 
-function otsu(g,w,h){
-  const hist=new Int32Array(256);for(let i=0;i<w*h;i++)hist[g[i]]++;
-  const N=w*h;let sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];
-  let wb=0,sb=0,best=0,bestT=128;
-  for(let t=0;t<256;t++){wb+=hist[t];if(!wb)continue;const wf=N-wb;if(!wf)break;sb+=t*hist[t];const mb=sb/wb,mf=(sum-sb)/wf,v=wb*wf*(mb-mf)*(mb-mf);if(v>best){best=v;bestT=t;}}
-  return bestT;
+// ── РІЗКІСТЬ: Unsharp mask ──
+function unsharpMask(idata, w, h, amount=0.6){
+  const blurred=gaussianBlur(idata,w,h,1);
+  const out=new ImageData(w,h);
+  for(let i=0;i<w*h*4;i+=4){
+    for(let c=0;c<3;c++){
+      const orig=idata.data[i+c], blur=blurred.data[i+c];
+      out.data[i+c]=Math.max(0,Math.min(255,Math.round(orig+amount*(orig-blur))));
+    }
+    out.data[i+3]=255;
+  }
+  return out;
 }
 
-function bradleyMask(g,w,h,s=15,t=0.85){
-  const ii=new Int32Array(w*h);
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++)ii[y*w+x]=g[y*w+x]+(x>0?ii[y*w+x-1]:0)+(y>0?ii[(y-1)*w+x]:0)-(x>0&&y>0?ii[(y-1)*w+x-1]:0);
-  const m=new Uint8Array(w*h),hs=s>>1;
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const x1=Math.max(0,x-hs),x2=Math.min(w-1,x+hs),y1=Math.max(0,y-hs),y2=Math.min(h-1,y+hs);
+// ── КОНТРАСТ: CLAHE-подібний (локальна нормалізація) ──
+function localContrast(idata, w, h, radius=40){
+  // Спрощений варіант: для кожного пікселя знаходимо локальний min/max
+  // через integral image і розтягуємо діапазон
+  const gray=new Uint8Array(w*h);
+  for(let i=0;i<w*h;i++) gray[i]=(77*idata.data[i*4]+150*idata.data[i*4+1]+29*idata.data[i*4+2])>>8;
+
+  // Integral image для gray
+  const ii=new Float32Array(w*h);
+  const ii2=new Float32Array(w*h);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const v=gray[y*w+x];
+    ii[y*w+x]=v+(x>0?ii[y*w+x-1]:0)+(y>0?ii[(y-1)*w+x]:0)-(x>0&&y>0?ii[(y-1)*w+x-1]:0);
+    ii2[y*w+x]=v*v+(x>0?ii2[y*w+x-1]:0)+(y>0?ii2[(y-1)*w+x]:0)-(x>0&&y>0?ii2[(y-1)*w+x-1]:0);
+  }
+
+  const out=new ImageData(w,h);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const x1=Math.max(0,x-radius),x2=Math.min(w-1,x+radius);
+    const y1=Math.max(0,y-radius),y2=Math.min(h-1,y+radius);
     const cnt=(x2-x1+1)*(y2-y1+1);
     const sm=ii[y2*w+x2]-(x1?ii[y2*w+x1-1]:0)-(y1?ii[(y1-1)*w+x2]:0)+(x1&&y1?ii[(y1-1)*w+x1-1]:0);
-    m[y*w+x]=g[y*w+x]*cnt<=sm*t?1:0;
+    const sm2=ii2[y2*w+x2]-(x1?ii2[y2*w+x1-1]:0)-(y1?ii2[(y1-1)*w+x2]:0)+(x1&&y1?ii2[(y1-1)*w+x1-1]:0);
+    const mean=sm/cnt;
+    const std=Math.sqrt(Math.max(0,sm2/cnt-mean*mean));
+    const scale=std>8?60/std:1; // нормалізуємо до std=60
+    const i=y*w+x;
+    for(let c=0;c<3;c++){
+      const ch=idata.data[i*4+c];
+      const norm=Math.round(128+(ch-mean)*scale);
+      out.data[i*4+c]=Math.max(0,Math.min(255,norm));
+    }
+    out.data[i*4+3]=255;
   }
-  return m;
+  return out;
 }
 
-function erodeMask(m,w,h){const o=new Uint8Array(w*h);for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++)if(m[y*w+x]&&m[(y-1)*w+x]&&m[(y+1)*w+x]&&m[y*w+x-1]&&m[y*w+x+1])o[y*w+x]=1;return o;}
+// ── ГОЛОВНА ФУНКЦІЯ ПРЕПРОЦЕСИНГУ ──
+// Вхід: HTMLImageElement + EXIF orient
+// Вихід: ImageData готова для декодера (900px max)
+function preprocess(img, orient, maxSide=900){
+  Lh('PRE-PROCESSING');
 
-function findCorners(m,w,h,slack=12){
-  let tlS=1e9,trS=-1e9,brS=-1e9,blS=1e9;
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(!m[y*w+x])continue;const s=x+y,d=x-y;if(s<tlS)tlS=s;if(d>trS)trS=d;if(s>brS)brS=s;if(d<blS)blS=d;}
+  // 1. EXIF rotation
+  let src;
+  if(orient&&orient!==1){
+    src=applyExifRotation(img,orient);
+    Li('  EXIF rotation: '+orient);
+  } else {
+    src=document.createElement('canvas');
+    src.width=img.naturalWidth; src.height=img.naturalHeight;
+    src.getContext('2d').drawImage(img,0,0);
+  }
+
+  // 2. Resize до maxSide
+  let w=src.width, h=src.height;
+  if(Math.max(w,h)>maxSide){
+    const s=maxSide/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s);
+  }
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  c.getContext('2d').drawImage(src,0,0,w,h);
+  let idata=c.getContext('2d').getImageData(0,0,w,h);
+  Li(`  Розмір: ${w}×${h}`);
+
+  // 3. Оцінка якості вхідного зображення
+  const gray0=new Uint8Array(w*h);
+  for(let i=0;i<w*h;i++) gray0[i]=(77*idata.data[i*4]+150*idata.data[i*4+1]+29*idata.data[i*4+2])>>8;
+  // Локальна дисперсія як міра різкості
+  let varSum=0;
+  const step=4;
+  let cnt=0;
+  for(let y=1;y<h-1;y+=step) for(let x=1;x<w-1;x+=step){
+    const v=gray0[y*w+x];
+    const lap=Math.abs(4*v-gray0[(y-1)*w+x]-gray0[(y+1)*w+x]-gray0[y*w+x-1]-gray0[y*w+x+1]);
+    varSum+=lap; cnt++;
+  }
+  const sharpness=varSum/cnt;
+  Li(`  Різкість (Laplacian): ${sharpness.toFixed(1)}`);
+
+  // 4. Вибір стратегії залежно від якості
+  const isBlurry=sharpness<8;
+  const isLowContrast=(() => {
+    let mn=255,mx=0;
+    for(const v of gray0){if(v<mn)mn=v;if(v>mx)mx=v;}
+    return mx-mn<80;
+  })();
+
+  Li(`  Стан: ${isBlurry?'РОЗМИТЕ':'різке'} / ${isLowContrast?'НИЗЬКИЙ контраст':'контраст OK'}`);
+
+  // 5. Застосовуємо фільтри
+  if(isBlurry){
+    // Розмите фото з камери: спочатку unsharp mask щоб відновити краї
+    idata=unsharpMask(idata,w,h,0.8);
+    Li('  → Unsharp mask (0.8)');
+  } else {
+    // Різке але можливо є муар від монітора: легкий blur щоб прибрати піксельний шум
+    idata=gaussianBlur(idata,w,h,1);
+    Li('  → Gaussian blur 1px (придушення муару)');
+  }
+
+  if(isLowContrast){
+    idata=localContrast(idata,w,h,40);
+    Li('  → Local contrast (CLAHE-like, r=40)');
+  }
+
+  Li(`  Pre-processing завершено`);
+  return{idata,w,h};
+}
+
+// ════════════════════════════════════════════════════════
+//  ДЕКОДЕР v5.1 — ЗАМОРОЖЕНИЙ, НЕ ЗМІНЮВАТИ
+// ════════════════════════════════════════════════════════
+
+function toGray(idata,w,h){const d=idata.data,g=new Uint8Array(w*h);for(let i=0;i<w*h;i++)g[i]=(77*d[i*4]+150*d[i*4+1]+29*d[i*4+2])>>8;return g;}
+
+function sampleBG(gray,w,h,s=5){
+  const v=[];
+  for(let dy=0;dy<s;dy++)for(let dx=0;dx<s;dx++){v.push(gray[dy*w+dx],gray[dy*w+(w-1-dx)],gray[(h-1-dy)*w+dx],gray[(h-1-dy)*w+(w-1-dx)]);}
+  v.sort((a,b)=>a-b);return v[v.length>>1];
+}
+
+function makeMask(gray,w,h,bg,tol){const m=new Uint8Array(w*h);for(let i=0;i<w*h;i++)m[i]=Math.abs(gray[i]-bg)>tol?1:0;return m;}
+
+function erodeMask(mask,w,h){
+  const out=new Uint8Array(w*h);
+  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++)
+    if(mask[y*w+x]&&mask[(y-1)*w+x]&&mask[(y+1)*w+x]&&mask[y*w+x-1]&&mask[y*w+x+1])out[y*w+x]=1;
+  return out;
+}
+
+function findCorners(mask,w,h,slack=12){
+  let tlS=Infinity,trS=-Infinity,brS=-Infinity,blS=Infinity;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(!mask[y*w+x])continue;const s=x+y,d=x-y;if(s<tlS)tlS=s;if(d>trS)trS=d;if(s>brS)brS=s;if(d<blS)blS=d;}
   let tlX=0,tlY=0,tlN=0,trX=0,trY=0,trN=0,brX=0,brY=0,brN=0,blX=0,blY=0,blN=0;
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    if(!m[y*w+x])continue;const s=x+y,d=x-y;
+    if(!mask[y*w+x])continue;const s=x+y,d=x-y;
     if(s<=tlS+slack){tlX+=x;tlY+=y;tlN++;}if(d>=trS-slack){trX+=x;trY+=y;trN++;}
     if(s>=brS-slack){brX+=x;brY+=y;brN++;}if(d<=blS+slack){blX+=x;blY+=y;blN++;}
   }
@@ -175,52 +311,6 @@ function findCorners(m,w,h,slack=12){
 
 function spread(c){const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);return Math.max(d(c.tl,c.tr),d(c.tr,c.br),d(c.br,c.bl),d(c.bl,c.tl));}
 
-// ── MASK CASCADE ──
-function buildMask(gray,w,h){
-  let best=null,bestSp=0,method='';
-
-  // 1. BG-corner multi-tol
-  const sampleBG=(g,w,h)=>{const v=[];for(let d=0;d<5;d++)for(let e=0;e<5;e++){v.push(g[d*w+e],g[d*w+(w-1-e)],g[(h-1-d)*w+e],g[(h-1-d)*w+(w-1-e)]);}v.sort((a,b)=>a-b);return v[v.length>>1];};
-  const bg=sampleBG(gray,w,h);
-  Li('BG corner luma: '+bg);
-  for(const tol of[20,30,42,55,70,90]){
-    const rm=new Uint8Array(w*h);for(let i=0;i<w*h;i++)rm[i]=Math.abs(gray[i]-bg)>tol?1:0;
-    const em=erodeMask(rm,w,h);
-    const fg=em.reduce((s,v)=>s+v,0);if(fg<50)continue;
-    const c=findCorners(em,w,h,15);const sp=spread(c);
-    if(sp>bestSp){bestSp=sp;best=c;method='BG tol='+tol;}
-  }
-  if(bestSp>=60){Lok('Маска: '+method+' spread='+Math.round(bestSp));return{corners:best,spread:bestSp};}
-
-  // 2. Otsu
-  const ot=otsu(gray,w,h);Li('Otsu thr='+ot);
-  for(const delta of[0,-10,10,-20,20]){
-    const t=ot+delta;
-    const rm=new Uint8Array(w*h);for(let i=0;i<w*h;i++)rm[i]=gray[i]<t?1:0;
-    const em=erodeMask(rm,w,h);
-    const fg=em.reduce((s,v)=>s+v,0);if(fg<50)continue;
-    const c=findCorners(em,w,h,15);const sp=spread(c);
-    if(sp>bestSp){bestSp=sp;best=c;method='Otsu delta='+(delta>=0?'+':'')+delta;}
-  }
-  if(bestSp>=60){Lok('Маска: '+method+' spread='+Math.round(bestSp));return{corners:best,spread:bestSp};}
-
-  // 3. Bradley
-  Li('Пробую Bradley...');
-  const blr=gaussBlur1(gray,w,h);
-  for(const t of[0.85,0.80,0.90]){
-    const rm=bradleyMask(blr,w,h,15,t);
-    const em=erodeMask(rm,w,h);
-    const fg=em.reduce((s,v)=>s+v,0);if(fg<50)continue;
-    const c=findCorners(em,w,h,18);const sp=spread(c);
-    if(sp>bestSp){bestSp=sp;best=c;method='Bradley t='+t;}
-  }
-  if(bestSp>=40){Lok('Маска: '+method+' spread='+Math.round(bestSp));return{corners:best,spread:bestSp};}
-
-  Le('Всі методи не дали результату (spread='+Math.round(bestSp)+')');
-  return{corners:best,spread:bestSp};
-}
-
-// ── WARP ──
 function gaussElim(A,b){
   const n=b.length,M=A.map((r,i)=>[...r,b[i]]);
   for(let c=0;c<n;c++){let mr=c,mv=Math.abs(M[c][c]);for(let r=c+1;r<n;r++)if(Math.abs(M[r][c])>mv){mv=Math.abs(M[r][c]);mr=r;}[M[c],M[mr]]=[M[mr],M[c]];const pv=M[c][c];if(Math.abs(pv)<1e-12)return null;for(let r=c+1;r<n;r++){const f=M[r][c]/pv;for(let j=c;j<=n;j++)M[r][j]-=f*M[c][j];}}
@@ -239,35 +329,37 @@ function warpPerspective(idata,sw,sh,corners,S){
   for(let dy=0;dy<S;dy++)for(let dx=0;dx<S;dx++){
     const p=applyH(Hi,dx,dy),x0=p.x|0,y0=p.y|0,fx=p.x-x0,fy=p.y-y0;
     const di=(dy*S+dx)*4;
-    const get=(sx,sy,c)=>(sx<0||sx>=sw||sy<0||sy>=sh)?128:sd[(sy*sw+sx)*4+c];
-    for(let c=0;c<3;c++)od[di+c]=Math.round(get(x0,y0,c)*(1-fx)*(1-fy)+get(x0+1,y0,c)*fx*(1-fy)+get(x0,y0+1,c)*(1-fx)*fy+get(x0+1,y0+1,c)*fx*fy);
+    const get=(sx,sy,ch)=>(sx<0||sx>=sw||sy<0||sy>=sh)?128:sd[(sy*sw+sx)*4+ch];
+    for(let ch=0;ch<3;ch++)od[di+ch]=Math.round(get(x0,y0,ch)*(1-fx)*(1-fy)+get(x0+1,y0,ch)*fx*(1-fy)+get(x0,y0+1,ch)*(1-fx)*fy+get(x0+1,y0+1,ch)*fx*fy);
     od[di+3]=255;
   }
   return out;
 }
 
-// ── ZEBRA DETECTION ──
+// verifyZebra — ТОЧНО як v5.1
 function verifyZebra(wGray,S,minContrast){
   function scanLine(arr){
-    let mn=255,mx=0;for(const v of arr){if(v<mn)mn=v;if(v>mx)mx=v;}
+    const n=arr.length;let mn=255,mx=0;for(const v of arr){if(v<mn)mn=v;if(v>mx)mx=v;}
     if(mx-mn<minContrast)return null;
     const thr=(mn+mx)>>1,runs=[];let cur=arr[0]>thr?1:0,len=1;
-    for(let i=1;i<arr.length;i++){const b=arr[i]>thr?1:0;if(b===cur)len++;else{runs.push({v:cur,len});cur=b;len=1;}}
+    for(let i=1;i<n;i++){const b=arr[i]>thr?1:0;if(b===cur)len++;else{runs.push({v:cur,len});cur=b;len=1;}}
     runs.push({v:cur,len});
     if(runs.length<3)return null;
-    const allL=runs.map(r=>r.len).sort((a,b)=>a-b),med=allL[allL.length>>1];
+    const allLens=runs.map(r=>r.len).sort((a,b)=>a-b);
+    const med=allLens[allLens.length>>1];
     if(med<2)return null;
-    const valid=runs.filter(r=>r.len>=med*0.35&&r.len<=med*2.8);
+    const valid=runs.filter(r=>r.len>=med*0.4&&r.len<=med*2.4);
     if(valid.length<5)return null;
     let T=valid.length;
     if(T%2===0){if(valid[0].v===1||valid[T-1].v===1)T+=1;else return null;}
-    return T>=5?{T}:null;
+    if(T<5)return null;
+    return{T,modSize:S/T};
   }
-  // Зонди тільки поблизу країв — там де зебра-рамка
-  const edgeOffsets=[3,6,10,15,22,32,45,60];
+  // ТОЧНО як v5.1: probeOffsets=[2,5,10,15,20,30]
+  const probeOffsets=[2,5,10,15,20,30];
   const votes=new Map();let total=0;
-  for(const off of edgeOffsets){
-    if(off>=S/4)continue;
+  for(const off of probeOffsets){
+    if(off>=S/2)continue;
     for(const pos of[off,S-1-off]){
       const row=new Uint8Array(S);for(let x=0;x<S;x++)row[x]=wGray[pos*S+x];
       const rh=scanLine(row);if(rh)votes.set(rh.T,(votes.get(rh.T)||0)+1);total++;
@@ -277,12 +369,11 @@ function verifyZebra(wGray,S,minContrast){
   }
   if(!votes.size)return null;
   const sorted=[...votes.entries()].sort((a,b)=>b[1]-a[1]);
-  const vStr=sorted.slice(0,6).map(([t,v])=>`T${t}:${v}`).join(' ');
+  const vStr=sorted.slice(0,5).map(([t,v])=>`T${t}:${v}`).join(' ');
   const[bestT,bestV]=sorted[0];
   return{T:bestT,modSize:S/bestT,confidence:bestV/total,voteStr:vStr};
 }
 
-// ── SAMPLE CIRCLES ──
 function sampleCircles(warped,S,T,modSize){
   const d=warped.data,circleR=modSize*0.28,r2=circleR*circleR,cells=[];
   for(let row=1;row<T-1;row++)for(let col=1;col<T-1;col++){
@@ -299,74 +390,7 @@ function sampleCircles(warped,S,T,modSize){
   return{cells,circleR};
 }
 
-// ── DRAW ──
-const mainCnv=document.getElementById('cnv');
-
-function drawResult(warped,S,zebra,inputIdata,inputW,inputH,corners){
-  if(warped&&zebra){
-    mainCnv.width=S;mainCnv.height=S;
-    const ctx=mainCnv.getContext('2d');
-    ctx.putImageData(warped,0,0);
-    const{T,modSize}=zebra;
-    // grid
-    ctx.strokeStyle='rgba(40,120,200,0.2)';ctx.lineWidth=0.5;
-    for(let i=0;i<=T;i++){const p=i*modSize;ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,S);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(S,p);ctx.stroke();}
-    // zebra frame highlight
-    for(let i=0;i<T;i++){
-      ctx.fillStyle=(i%2===0)?'rgba(255,80,80,0.18)':'rgba(80,180,255,0.10)';
-      ctx.fillRect(i*modSize,0,modSize,modSize);ctx.fillRect(i*modSize,S-modSize,modSize,modSize);
-      if(i>0&&i<T-1){ctx.fillRect(0,i*modSize,modSize,modSize);ctx.fillRect(S-modSize,i*modSize,modSize,modSize);}
-    }
-    // corner markers
-    ctx.fillStyle='rgba(255,220,50,0.45)';
-    [[0,0],[S-modSize,0],[S-modSize,S-modSize],[0,S-modSize]].forEach(([x,y])=>ctx.fillRect(x,y,modSize,modSize));
-    // inner border
-    ctx.strokeStyle='rgba(80,235,120,0.55)';ctx.lineWidth=1.5;
-    ctx.strokeRect(modSize,modSize,(T-2)*modSize,(T-2)*modSize);
-    // circles
-    const cr=modSize*0.28;ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=Math.max(0.8,modSize*0.06);
-    for(let row=1;row<T-1;row++)for(let col=1;col<T-1;col++){
-      ctx.beginPath();ctx.arc(col*modSize+modSize/2,row*modSize+modSize/2,cr,0,Math.PI*2);ctx.stroke();
-    }
-  } else if(inputIdata){
-    mainCnv.width=inputW;mainCnv.height=inputH;
-    const ctx=mainCnv.getContext('2d');ctx.putImageData(inputIdata,0,0);
-    if(corners){
-      ctx.strokeStyle='#eb5555';ctx.lineWidth=2;
-      const c=corners;ctx.beginPath();ctx.moveTo(c.tl.x,c.tl.y);ctx.lineTo(c.tr.x,c.tr.y);ctx.lineTo(c.br.x,c.br.y);ctx.lineTo(c.bl.x,c.bl.y);ctx.closePath();ctx.stroke();
-      ctx.fillStyle='#eb5555';[c.tl,c.tr,c.br,c.bl].forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,5,0,Math.PI*2);ctx.fill();});
-    }
-  }
-}
-
-function buildRGBPanel(warped,S,T,modSize,circles){
-  const grid=document.getElementById('rgb-grid');grid.innerHTML='';
-  const labels=['Warped','R','G','B'];
-  const canvases=labels.map(lbl=>{
-    const tile=document.createElement('div');tile.className='rgb-tile';
-    const c=document.createElement('canvas');c.width=S;c.height=S;
-    const l=document.createElement('div');l.className='rgb-lbl';l.textContent=lbl;
-    tile.appendChild(c);tile.appendChild(l);grid.appendChild(tile);return c;
-  });
-  canvases[0].getContext('2d').putImageData(warped,0,0);
-  const colors=[[255,50,50],[50,220,50],[50,100,255]];
-  for(let ci=0;ci<3;ci++){
-    const c=canvases[ci+1],ctx=c.getContext('2d');
-    ctx.fillStyle='#080808';ctx.fillRect(0,0,S,S);
-    ctx.strokeStyle='rgba(40,40,60,0.5)';ctx.lineWidth=0.5;
-    for(let i=0;i<=T;i++){const p=i*modSize;ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,S);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(S,p);ctx.stroke();}
-    const cr=modSize*0.28;const[cr_,cg_,cb_]=colors[ci];
-    circles.cells.forEach(cell=>{
-      const cx=cell.col*modSize+modSize/2,cy=cell.row*modSize+modSize/2;
-      const val=ci===0?cell.r:ci===1?cell.g:cell.b;
-      ctx.fillStyle=`rgba(${cr_},${cg_},${cb_},${(val/255).toFixed(2)})`;
-      ctx.beginPath();ctx.arc(cx,cy,cr,0,Math.PI*2);ctx.fill();
-      if(modSize>20){ctx.fillStyle='rgba(255,255,255,0.55)';ctx.font=`${Math.max(6,modSize*0.22)}px monospace`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(Math.round(val),cx,cy);}
-    });
-  }
-}
-
-// ── TAINA DECODER ──
+// TAINA decoder — ТОЧНО як v5.1
 const RGB_MAIN={r:[255,0,0],g:[0,255,0],b:[0,0,255]};
 const RGB_GAL={r:[220,50,60],g:[65,195,65],b:[60,70,215]};
 const REFBITS=[[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,1,1],[1,1,1]];
@@ -382,11 +406,11 @@ function markCell(g,n,m){const[x,y]=baseCells(m,n)[0];return g[y*n+x]?1:0;}
 function agree(g,chk,n){let ok=0;for(let z=0;z<n*n;z++)ok+=((chk[z]?1:0)===g[z])?1:0;return ok/(n*n);}
 function decodeVoted(g,n,m,off,conf){const bc=baseCells(m,n),by=[];for(let i=off||0;i+7<bc.length;i+=8){let v=0;for(let b=0;b<8;b++){const[x,y]=bc[i+b],cells=mirrors(m,n,x,y);let bit;if(conf){let w1=0,w0=0;for(const[X,Y]of cells){const cv=conf[Y*n+X];if(cv<0.15)continue;if(g[Y*n+X])w1+=cv;else w0+=cv;}bit=(w1===0&&w0===0)?g[y*n+x]?1:0:w1>w0?1:0;}else{let ones=0;for(const[X,Y]of cells)ones+=g[Y*n+X]?1:0;const cnt=cells.length;bit=ones*2>cnt?1:ones*2<cnt?0:g[y*n+x]?1:0;}v=(v<<1)|bit;}by.push(v);}return{text:bytesToText(by),bytes:by};}
 function refsFor(S){const mix=(r,g,b)=>[Math.min(255,(r?S.r[0]:0)+(g?S.g[0]:0)+(b?S.b[0]:0)),Math.min(255,(r?S.r[1]:0)+(g?S.g[1]:0)+(b?S.b[1]:0)),Math.min(255,(r?S.r[2]:0)+(g?S.g[2]:0)+(b?S.b[2]:0))];return REFBITS.map(c=>({bits:c,col:mix(c[0],c[1],c[2])}));}
-function classifyCells(cells,n){const pals=[['насичена',RGB_MAIN],['галерейна',RGB_GAL]];let best=null;for(const[name,S]of pals){const refs=refsFor(S);let err=0;const cr=new Uint8Array(n*n),cg=new Uint8Array(n*n),cb=new Uint8Array(n*n);for(let i=0;i<n*n;i++){const[R,G,B]=[cells[i].r,cells[i].g,cells[i].b];let bi=0,bd=1e9;for(let k=0;k<refs.length;k++){const q=refs[k].col,dr=R-q[0],dg=G-q[1],db=B-q[2],d=dr*dr+dg*dg+db*db;if(d<bd){bd=d;bi=k;}}err+=bd;const t=refs[bi].bits;cr[i]=t[0];cg[i]=t[1];cb[i]=t[2];}if(!best||err<best.err)best={name,err,cr,cg,cb};}return best;}
+function classifyCells(cells,n){const pals=[['насичена',RGB_MAIN],['галерейна',RGB_GAL]];let best=null;for(const[name,S]of pals){const refs=refsFor(S);let err=0;const cr=new Uint8Array(n*n),cg=new Uint8Array(n*n),cb=new Uint8Array(n*n);for(let i=0;i<n*n;i++){const[R,G,B]=[cells[i].r,cells[i].g,cells[i].b];let bi=0,bd=1e9;for(let k=0;k<refs.length;k++){const q=refs[k].col,dr=R-q[0],dg=G-q[1],db=B-q[2],dd=dr*dr+dg*dg+db*db;if(dd<bd){bd=dd;bi=k;}}err+=bd;const t=refs[bi].bits;cr[i]=t[0];cg[i]=t[1];cb[i]=t[2];}if(!best||err<best.err)best={name,err,cr,cg,cb};}return best;}
 
 function decodeCircles(circles,T){
   const cells=circles.cells,n=T-2;
-  if(n<7||n%2===0){Lw(`n=${n} — замалий або парний`);return null;}
+  if(n<7||n%2===0){Lw('n='+n+' — замалий або парний');return null;}
   const lumas=cells.map(c=>(c.r+c.g+c.b)/3);
   const lumaMin=Math.min(...lumas),lumaMax=Math.max(...lumas),autoThr=(lumaMin+lumaMax)/2;
   const gl=new Uint8Array(n*n),confM=new Float32Array(n*n);
@@ -395,14 +419,14 @@ function decodeCircles(circles,T){
   const medSat=[...sats].sort((a,b)=>a-b)[sats.length>>1];
   const coloredCnt=sats.filter(s=>s>60).length;
   const isColored=medSat>25||coloredCnt>=Math.max(3,n*0.15);
-  Li(`  n=${n}  поріг=${autoThr.toFixed(0)}  ${isColored?'КОЛІР':'МОНО'}`);
+  Li('  n='+n+'  поріг='+autoThr.toFixed(0)+'  '+(isColored?'КОЛІР':'МОНО'));
   const modes=['oct','quad','half'];
   if(!isColored){
     Lh('7. ДЕКОД МОНО');let best=null;
-    for(const m of modes){const v=decodeVoted(gl,n,m,0,confM);if(v.text!==null){const a=agree(gl,fillChannel(v.text,n,m),n);Lok(`[${m}] "${v.text}"  agree=${a.toFixed(3)}`);if(!best||a>best.a)best={v,a,m};}else Li(`  [${m}] null`);}
-    return best?{type:`МОНО·${best.m}`,text:best.v.text}:{type:'МОНО',text:null};
+    for(const m of modes){const v=decodeVoted(gl,n,m,0,confM);if(v.text!==null){const a=agree(gl,fillChannel(v.text,n,m),n);Lok('['+m+'] "'+v.text+'"  agree='+a.toFixed(3));if(!best||a>best.a)best={v,a,m};}else Li('  ['+m+'] null');}
+    return best?{type:'МОНО·'+best.m,text:best.v.text}:{type:'МОНО',text:null};
   } else {
-    Lh('7. ДЕКОД КОЛІР');const cls=classifyCells(cells,n);Li(`  палітра: ${cls.name}`);
+    Lh('7. ДЕКОД КОЛІР');const cls=classifyCells(cells,n);Li('  палітра: '+cls.name);
     const cR=new Float32Array(n*n),cG=new Float32Array(n*n),cB=new Float32Array(n*n);
     cells.forEach((c,i)=>{cR[i]=Math.min(1,Math.abs(c.r-128)/90);cG[i]=Math.min(1,Math.abs(c.g-128)/90);cB[i]=Math.min(1,Math.abs(c.b-128)/90);});
     let best=null;
@@ -411,145 +435,215 @@ function decodeCircles(circles,T){
       let vr=decodeVoted(cls.cr,n,m,rMark?1:0,cR);if(rMark&&vr.text===null)vr=decodeVoted(cls.cr,n,m,0,cR);
       const vg=decodeVoted(cls.cg,n,m,0,cG),vb=decodeVoted(cls.cb,n,m,0,cB);
       const nn=[vr.text,vg.text,vb.text].filter(t=>t!==null);
-      Li(`  [${m}] R:${vr.text!=null?'"'+vr.text+'"':'null'}  G:${vg.text!=null?'"'+vg.text+'"':'null'}  B:${vb.text!=null?'"'+vb.text+'"':'null'}`);
+      Li('  ['+m+'] R:'+(vr.text!=null?'"'+vr.text+'"':'null')+'  G:'+(vg.text!=null?'"'+vg.text+'"':'null')+'  B:'+(vb.text!=null?'"'+vb.text+'"':'null'));
       if(!nn.length)continue;
       const sc=nn.length*1000+nn.reduce((a,t)=>a+t.length,0);
       if(!best||sc>best.sc)best={vr,vg,vb,nn,sc,m,rMark};
     }
-    if(!best)return{type:`КОЛІР·${cls.name}`,text:null};
+    if(!best)return{type:'КОЛІР·'+cls.name,text:null};
     const parts=[best.vr.text,best.vg.text,best.vb.text].filter(t=>t!==null);
     const text=best.rMark?(parts.every(t=>t===parts[0])?parts[0]:parts.join('')):parts.join(' · ');
-    Lok(`[${best.m}] "${text}"`);return{type:`КОЛІР·${best.m}`,text};
+    Lok('['+best.m+'] "'+text+'"');return{type:'КОЛІР·'+best.m,text};
   }
 }
 
-// ── PIPELINE ──
-function pipeline(img,orient=1){
-  Lh('1. ЗАВАНТАЖЕННЯ');
-  const{idata,w,h}=srcCanvas(img,orient,900);
-  Li(`${w}×${h}  EXIF: ${orient}`);
-
-  Lh('2. МАСКА');
+// ── v5.1 PIPELINE (маска + кути — точно як оригінал) ──
+function findFrame(idata,w,h){
   const gray=toGray(idata,w,h);
-  const{corners,spread:sp}=buildMask(gray,w,h);
+  const bg=sampleBG(gray,w,h,5);
+  Li('BG luma: '+bg);
+  const tols=[20,30,42,55,70,90];
+  let bestCorners=null,bestSpread=0,bestTol=0;
+  for(const tol of tols){
+    const rm=makeMask(gray,w,h,bg,tol);
+    const em=erodeMask(rm,w,h);
+    const fgN=em.reduce((s,v)=>s+v,0);
+    if(fgN<50){Li('  tol='+tol+' FG='+fgN+' — пропуск');continue;}
+    const c=findCorners(em,w,h,15);
+    const sp=spread(c);
+    Li('  tol='+tol+'  FG='+fgN+'  spread='+Math.round(sp)+'px');
+    if(sp>bestSpread){bestSpread=sp;bestCorners=c;bestTol=tol;}
+  }
+  Li('Обрано tol='+bestTol+'  spread='+Math.round(bestSpread)+'px');
 
-  if(!corners||sp<20){Le('Рамку не знайдено');return{ok:false,idata,w,h};}
+  // variance-scan fallback — точно як v5.1
+  if(!bestCorners||bestSpread<30){
+    Li('Маска не спрацювала — variance-scan');
+    const topRows=[],leftCols=[];
+    for(let y=0;y<h;y++){let sum=0,sum2=0;for(let x=0;x<w;x++){const v=gray[y*w+x];sum+=v;sum2+=v*v;}const avg=sum/w,std=Math.sqrt(sum2/w-avg*avg);if(std>50)topRows.push(y);}
+    for(let x=0;x<w;x++){let sum=0,sum2=0;for(let y=0;y<h;y++){const v=gray[y*w+x];sum+=v;sum2+=v*v;}const avg=sum/h,std=Math.sqrt(sum2/h-avg*avg);if(std>50)leftCols.push(x);}
+    topRows.sort((a,b)=>a-b);leftCols.sort((a,b)=>a-b);
+    if(topRows.length>0&&leftCols.length>0){
+      const vc={tl:{x:leftCols[0],y:topRows[0]},tr:{x:leftCols[leftCols.length-1],y:topRows[0]},br:{x:leftCols[leftCols.length-1],y:topRows[topRows.length-1]},bl:{x:leftCols[0],y:topRows[topRows.length-1]}};
+      const vsp=spread(vc);
+      Li('Variance: spread='+Math.round(vsp));
+      if(vsp>bestSpread){bestCorners=vc;bestSpread=vsp;}
+    }
+  }
+  return{corners:bestCorners,spread:bestSpread};
+}
 
+// ── DRAW ──
+const mainCnv=document.getElementById('cnv');
+
+function drawResult(warped,S,zebra,idata,w,h,corners){
+  if(warped&&zebra){
+    mainCnv.width=S;mainCnv.height=S;
+    const ctx=mainCnv.getContext('2d');
+    ctx.putImageData(warped,0,0);
+    const{T,modSize}=zebra;
+    ctx.strokeStyle='rgba(40,120,200,0.18)';ctx.lineWidth=0.5;
+    for(let i=0;i<=T;i++){const p=i*modSize;ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,S);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(S,p);ctx.stroke();}
+    for(let i=0;i<T;i++){
+      ctx.fillStyle=(i%2===0)?'rgba(255,80,80,0.18)':'rgba(80,180,255,0.10)';
+      ctx.fillRect(i*modSize,0,modSize,modSize);ctx.fillRect(i*modSize,S-modSize,modSize,modSize);
+      if(i>0&&i<T-1){ctx.fillRect(0,i*modSize,modSize,modSize);ctx.fillRect(S-modSize,i*modSize,modSize,modSize);}
+    }
+    ctx.fillStyle='rgba(255,220,50,0.45)';
+    [[0,0],[S-modSize,0],[S-modSize,S-modSize],[0,S-modSize]].forEach(([x,y])=>ctx.fillRect(x,y,modSize,modSize));
+    ctx.strokeStyle='rgba(80,235,120,0.55)';ctx.lineWidth=1.5;
+    ctx.strokeRect(modSize,modSize,(T-2)*modSize,(T-2)*modSize);
+    const cr=modSize*0.28;ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=Math.max(0.8,modSize*0.06);
+    for(let row=1;row<T-1;row++)for(let col=1;col<T-1;col++){ctx.beginPath();ctx.arc(col*modSize+modSize/2,row*modSize+modSize/2,cr,0,Math.PI*2);ctx.stroke();}
+  } else if(idata){
+    mainCnv.width=w;mainCnv.height=h;
+    const ctx=mainCnv.getContext('2d');ctx.putImageData(idata,0,0);
+    if(corners){
+      ctx.strokeStyle='#eb5555';ctx.lineWidth=2;
+      const c=corners;ctx.beginPath();ctx.moveTo(c.tl.x,c.tl.y);ctx.lineTo(c.tr.x,c.tr.y);ctx.lineTo(c.br.x,c.br.y);ctx.lineTo(c.bl.x,c.bl.y);ctx.closePath();ctx.stroke();
+      ctx.fillStyle='#eb5555';[c.tl,c.tr,c.br,c.bl].forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,5,0,Math.PI*2);ctx.fill();});
+    }
+  }
+}
+
+function buildRGBPanel(warped,S,T,modSize,circles){
+  const grid=document.getElementById('rgb-grid');grid.innerHTML='';
+  const labels=['Warped','R','G','B'],colors=[[255,50,50],[50,220,50],[50,100,255]];
+  const canvases=labels.map(lbl=>{const tile=document.createElement('div');tile.className='rgb-tile';const c=document.createElement('canvas');c.width=S;c.height=S;const l=document.createElement('div');l.className='rgb-lbl';l.textContent=lbl;tile.appendChild(c);tile.appendChild(l);grid.appendChild(tile);return c;});
+  canvases[0].getContext('2d').putImageData(warped,0,0);
+  for(let ci=0;ci<3;ci++){
+    const c=canvases[ci+1],ctx=c.getContext('2d');
+    ctx.fillStyle='#080808';ctx.fillRect(0,0,S,S);
+    ctx.strokeStyle='rgba(40,40,60,0.5)';ctx.lineWidth=0.5;
+    for(let i=0;i<=T;i++){const p=i*modSize;ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,S);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(S,p);ctx.stroke();}
+    const cr=modSize*0.28;const[cr_,cg_,cb_]=colors[ci];
+    circles.cells.forEach(cell=>{
+      const cx=cell.col*modSize+modSize/2,cy=cell.row*modSize+modSize/2;
+      const val=ci===0?cell.r:ci===1?cell.g:cell.b;
+      ctx.fillStyle='rgba('+cr_+','+cg_+','+cb_+','+(val/255).toFixed(2)+')';
+      ctx.beginPath();ctx.arc(cx,cy,cr,0,Math.PI*2);ctx.fill();
+      if(modSize>20){ctx.fillStyle='rgba(255,255,255,0.55)';ctx.font=Math.max(6,modSize*0.22)+'px monospace';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(Math.round(val),cx,cy);}
+    });
+  }
+}
+
+// ── MAIN RUN ──
+function run(idata,w,h){
+  // Декодер v5.1 — незмінний
+  Lh('1. ПОШУК РАМКИ');
+  const{corners,spread:sp}=findFrame(idata,w,h);
+  if(!corners||sp<20){
+    Le('Рамку не знайдено');
+    drawResult(null,null,null,idata,w,h,corners);
+    setSt('✗ рамку не знайдено',false);
+    return;
+  }
   const exp=6;
-  const c={
-    tl:{x:corners.tl.x-exp,y:corners.tl.y-exp},tr:{x:corners.tr.x+exp,y:corners.tr.y-exp},
-    br:{x:corners.br.x+exp,y:corners.br.y+exp},bl:{x:corners.bl.x-exp,y:corners.bl.y+exp}
-  };
-  Li(`TL(${c.tl.x},${c.tl.y}) TR(${c.tr.x},${c.tr.y}) BR(${c.br.x},${c.br.y}) BL(${c.bl.x},${c.bl.y})`);
+  const c={tl:{x:corners.tl.x-exp,y:corners.tl.y-exp},tr:{x:corners.tr.x+exp,y:corners.tr.y-exp},br:{x:corners.br.x+exp,y:corners.br.y+exp},bl:{x:corners.bl.x-exp,y:corners.bl.y+exp}};
+  Li('TL('+c.tl.x+','+c.tl.y+') TR('+c.tr.x+','+c.tr.y+') BR('+c.br.x+','+c.br.y+') BL('+c.bl.x+','+c.bl.y+')');
 
-  Lh('3. WARP');
-  const S=660; // ~20px на модуль при T=33
+  Lh('2. WARP');
+  const S=600; // ТОЧНО як v5.1
   const warped=warpPerspective(idata,w,h,c,S);
-  if(!warped){Le('Гомографія не вдалася');return{ok:false,corners:c,idata,w,h};}
-  Lok(`Warp → ${S}×${S}`);
-  const wGray=toGrayRaw(warped.data,S,S);
+  if(!warped){Le('Гомографія не вдалася');setSt('✗ warp failed',false);return;}
+  Lok('Warp → '+S+'×'+S);
 
-  // Bradley на warped — для зебри при складному фоні
-  const wBlur=gaussBlur1(wGray,S,S);
-  const wBrad=bradleyMask(wBlur,S,S,Math.round(S/40),0.82);
-  const wGrayB=new Uint8Array(S*S);for(let i=0;i<S*S;i++)wGrayB[i]=wBrad[i]?255:0;
+  Lh('3. ЗЕБРА');
+  const wGray=toGray(warped,S,S);
+  const zebra=verifyZebra(wGray,S,50); // minContrast=50, ТОЧНО як v5.1
+  if(zebra)Li('  голоси: '+zebra.voteStr);
+  if(!zebra){Le('Зебру не знайдено');drawResult(warped,S,null,idata,w,h,c);setSt('✗ зебру не знайдено',false);return;}
+  Lok('T='+zebra.T+'  mod='+zebra.modSize.toFixed(1)+'px  conf='+(zebra.confidence*100).toFixed(0)+'%');
 
-  Lh('4. ЗЕБРА');
-  let zebra=verifyZebra(wGray,S,30);
-  const zebraB=verifyZebra(wGrayB,S,100);
-  let src='raw';
-  if(zebraB&&(!zebra||zebraB.confidence>zebra.confidence)){zebra=zebraB;src='bradley';}
-  Li(`  джерело: ${src}`);
-  if(zebra)Li(`  голоси: ${zebra.voteStr}`);
-  if(!zebra){Le('Зебру не знайдено');return{ok:false,corners:c,idata,w,h,warped,S};}
-  Lok(`T=${zebra.T}  mod=${zebra.modSize.toFixed(1)}px  conf=${(zebra.confidence*100).toFixed(0)}%`);
-
-  Lh('5. КРУЖЕЧКИ');
+  Lh('4. КРУЖЕЧКИ');
   const circles=sampleCircles(warped,S,zebra.T,zebra.modSize);
   const lumas=circles.cells.map(c=>(c.r+c.g+c.b)/3).sort((a,b)=>a-b);
-  Li(`  ${circles.cells.length} шт  r=${circles.circleR.toFixed(1)}px`);
-  Li(`  яскравість: min=${lumas[0].toFixed(0)} med=${lumas[lumas.length>>1].toFixed(0)} max=${lumas[lumas.length-1].toFixed(0)}`);
+  Li('  '+circles.cells.length+' шт  r='+circles.circleR.toFixed(1)+'px');
+  Li('  яскравість: min='+lumas[0].toFixed(0)+' med='+lumas[lumas.length>>1].toFixed(0)+' max='+lumas[lumas.length-1].toFixed(0));
 
-  Lh('6. ДЕКОДУВАННЯ');
+  Lh('5. ДЕКОДУВАННЯ');
   const decoded=decodeCircles(circles,zebra.T);
-  return{ok:true,corners:c,idata,w,h,warped,S,zebra,circles,decoded};
+
+  drawResult(warped,S,zebra,idata,w,h,c);
+  buildRGBPanel(warped,S,zebra.T,zebra.modSize,circles);
+
+  if(decoded&&decoded.text!==null){
+    Lok('РЕЗУЛЬТАТ: "'+decoded.text+'" ['+decoded.type+']');
+    setSt('✓ "'+decoded.text+'"',true);
+  } else {
+    Lw('Декод не вдався ['+(decoded?decoded.type:'—')+']');
+    setSt('⚠ зебра OK, декод null',null);
+  }
 }
 
-// ── RUN ──
-function run(img,orient=1){
-  clrLog();setSt('обробка…',null);
+// ── ENTRY POINTS ──
+function processImage(img,orient){
+  clrLog();
   document.getElementById('vidWrap').style.display='none';
-  const r=pipeline(img,orient);
-  drawResult(r.warped,r.S,r.ok?r.zebra:null,r.idata,r.w,r.h,r.corners);
-  if(r.ok&&r.circles)buildRGBPanel(r.warped,r.S,r.zebra.T,r.zebra.modSize,r.circles);
-  if(r.ok&&r.decoded){
-    const d=r.decoded;
-    if(d.text!==null){Lok(`РЕЗУЛЬТАТ: "${d.text}" [${d.type}]`);setSt(`✓ "${d.text}"`,true);}
-    else{Lw(`Декод не вдався [${d.type}]`);setSt('⚠ зебра OK, декод null',null);}
-  } else if(!r.ok){setSt('✗ рамку не знайдено',false);}
+  mainCnv.style.display='block';
+  setSt('обробка…',null);
+  const{idata,w,h}=preprocess(img,orient,900);
+  run(idata,w,h);
 }
 
-// ── FILE ──
+// Файл
 document.getElementById('fin').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
-  clrLog();Li('Файл: '+f.name);
+  Li('Файл: '+f.name);
   const reader=new FileReader();
   reader.onload=ev=>{
     const orient=getExifOrientation(ev.target.result);
     const img=new Image();
-    img.onload=()=>setTimeout(()=>run(img,orient),30);
+    img.onload=()=>setTimeout(()=>processImage(img,orient),30);
     img.src=URL.createObjectURL(f);
   };
   reader.readAsArrayBuffer(f);
   e.target.value='';
 });
 
-// ── CAMERA ──
+// Камера
 let stream=null;
 const vid=document.getElementById('vid');
 const vidWrap=document.getElementById('vidWrap');
-const camBtn=document.getElementById('camBtn');
-const capBtn=document.getElementById('capBtn');
-const stopBtn=document.getElementById('stopBtn');
 
-camBtn.addEventListener('click',async()=>{
+document.getElementById('camBtn').addEventListener('click',async()=>{
   try{
     stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}}});
-    vid.srcObject=stream;
-    await vid.play();
-    // Показуємо відео
-    vidWrap.style.display='flex';
-    mainCnv.style.display='none';
-    camBtn.style.display='none';
-    capBtn.style.display='inline';
-    stopBtn.style.display='inline';
-    setSt('◎ камера активна — натисни «Знімок»',null);
-    clrLog();Li('Камера запущена: '+vid.videoWidth+'×'+vid.videoHeight);
-  }catch(err){Le('Камера: '+err.message);setSt('✗ камера: '+err.message,false);}
+    vid.srcObject=stream;await vid.play();
+    vidWrap.style.display='flex';mainCnv.style.display='none';
+    document.getElementById('camBtn').style.display='none';
+    document.getElementById('capBtn').style.display='inline';
+    document.getElementById('stopBtn').style.display='inline';
+    setSt('◎ камера — натисни Знімок',null);
+  }catch(err){Le('Камера: '+err.message);setSt('✗ '+err.message,false);}
 });
 
-capBtn.addEventListener('click',()=>{
-  if(!stream){Le('Немає потоку камери');return;}
-  // Зафіксувати кадр
+document.getElementById('capBtn').addEventListener('click',()=>{
+  if(!stream)return;
   const tmp=document.createElement('canvas');
   tmp.width=vid.videoWidth||640;tmp.height=vid.videoHeight||480;
   tmp.getContext('2d').drawImage(vid,0,0);
-  Li('Знімок: '+tmp.width+'×'+tmp.height);
-  // Зупинити відео, показати canvas
-  vidWrap.style.display='none';
-  mainCnv.style.display='block';
   const img=new Image();
-  img.onload=()=>setTimeout(()=>run(img,1),30);
+  img.onload=()=>setTimeout(()=>processImage(img,1),30);
   img.src=tmp.toDataURL('image/jpeg',0.92);
 });
 
-stopBtn.addEventListener('click',()=>{
+document.getElementById('stopBtn').addEventListener('click',()=>{
   if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
-  vidWrap.style.display='none';
-  mainCnv.style.display='block';
-  camBtn.style.display='inline';
-  capBtn.style.display='none';
-  stopBtn.style.display='none';
+  vidWrap.style.display='none';mainCnv.style.display='block';
+  document.getElementById('camBtn').style.display='inline';
+  document.getElementById('capBtn').style.display='none';
+  document.getElementById('stopBtn').style.display='none';
   setSt('— очікування —',null);
 });
 </script>

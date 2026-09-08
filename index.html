@@ -8,6 +8,11 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:#060608;color:#9a9aaa;font:11px/1.6 'Courier New',monospace}
 #app{display:grid;grid-template-columns:460px 1fr;height:100vh;overflow:hidden}
+@media (max-width: 700px) {
+  #app{grid-template-columns:1fr; grid-template-rows: 50vh 1fr;}
+  #left{border-right:none; border-bottom:1px solid #141420;}
+  #topbar{overflow-x:auto; white-space:nowrap;}
+}
 #left{display:flex;flex-direction:column;border-right:1px solid #141420;overflow:hidden}
 #topbar{padding:8px 10px;border-bottom:1px solid #141420;display:flex;gap:5px;align-items:center;flex-shrink:0;flex-wrap:wrap}
 h1{font-size:10px;letter-spacing:3px;color:#3a7aaa;margin-right:4px}
@@ -609,16 +614,25 @@ const vidWrap=document.getElementById('vidWrap');
 
 document.getElementById('camBtn').addEventListener('click',async()=>{
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}}});
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:'environment'},
+        width:{ideal:1920},
+        height:{ideal:1080},
+        advanced: [
+          { focusMode: "continuous" },
+          { exposureMode: "continuous" }
+        ]
+      }
+    });
     vid.srcObject=stream;await vid.play();
     vidWrap.style.display='flex';mainCnv.style.display='none';
     document.getElementById('camBtn').style.display='none';
     document.getElementById('capBtn').style.display='inline';
     document.getElementById('stopBtn').style.display='inline';
-    setSt('◎ камера — натисни Знімок',null);
+    setSt('◎ камера — наведи на зебру, дочекайся фокусу...',null);
   }catch(err){Le('Камера: '+err.message);setSt('✗ '+err.message,false);}
 });
-
 document.getElementById('capBtn').addEventListener('click',()=>{
   if(!stream)return;
   const tmp=document.createElement('canvas');
@@ -626,7 +640,7 @@ document.getElementById('capBtn').addEventListener('click',()=>{
   tmp.getContext('2d').drawImage(vid,0,0);
   const img=new Image();
   img.onload=()=>setTimeout(()=>processImage(img,1),30);
-  img.src=tmp.toDataURL('image/jpeg',0.92);
+  img.src=tmp.toDataURL('image/png');
 });
 
 document.getElementById('stopBtn').addEventListener('click',()=>{

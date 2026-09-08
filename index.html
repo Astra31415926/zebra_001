@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZEBRA FINDER · v6.5</title>
+<title>ZEBRA FINDER · v6.3</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:#060608;color:#9a9aaa;font:11px/1.6 'Courier New',monospace}
@@ -37,7 +37,7 @@ input[type=file]{display:none}
 <div id="app">
   <div id="left">
     <div id="topbar">
-      <h1>ZEBRA·v6.5</h1>
+      <h1>ZEBRA·v6.3</h1>
       <label class="btn">▶ Файл<input type="file" id="fin" accept="image/*"></label>
       <button class="btn" id="camBtn">◎ Камера</button>
       <button class="btn" id="capBtn" style="display:none">● Знімок</button>
@@ -78,9 +78,15 @@ document.querySelectorAll('.tab').forEach(btn=>{
 });
 
 // ════════════════════════════════════════════════════════
-//  PRE-PROCESSING PIPELINE
-//  Мета: підготувати погане зображення (камера, монітор)
-//  до незмінного декодера v5.1.
+//  PRE-PROCESSING PIPELINE  v6.3
+//
+//  ФАЗА 1 — знайти рамку:
+//    blur(2) → CLAHE(r=40) → Otsu-бінаризація → findFrame + verifyZebra
+//
+//  ФАЗА 2 — читати код (тільки після підтвердження рамки):
+//    blur(1) → unsharp → warpPerspective → sampleCircles → decode
+//    (без бінаризації — усереднення кола є природнім фільтром)
+//
 //  Декодер нижче — заморожений, не змінювати!
 // ════════════════════════════════════════════════════════
 
@@ -126,7 +132,6 @@ function gaussianBlur(idata, w, h, passes=1){
   let d=new Float32Array(idata.data);
   for(let p=0;p<passes;p++){
     const tmp=new Float32Array(d.length);
-    // horizontal
     for(let y=0;y<h;y++) for(let x=0;x<w;x++){
       for(let c=0;c<3;c++){
         let s=0;
@@ -135,7 +140,6 @@ function gaussianBlur(idata, w, h, passes=1){
       }
       tmp[(y*w+x)*4+3]=255;
     }
-    // vertical
     const tmp2=new Float32Array(tmp.length);
     for(let y=0;y<h;y++) for(let x=0;x<w;x++){
       for(let c=0;c<3;c++){
@@ -153,7 +157,7 @@ function gaussianBlur(idata, w, h, passes=1){
 }
 
 // ── РІЗКІСТЬ: Unsharp mask ──
-function unsharpMask(idata, w, h, amount=0.6){
+function unsharpMask(idata, w, h, amount=0.8){
   const blurred=gaussianBlur(idata,w,h,1);
   const out=new ImageData(w,h);
   for(let i=0;i<w*h*4;i+=4){
@@ -166,22 +170,16 @@ function unsharpMask(idata, w, h, amount=0.6){
   return out;
 }
 
-// ── КОНТРАСТ: CLAHE-подібний (локальна нормалізація) ──
-function localContrast(idata, w, h, radius=40){
-  // Спрощений варіант: для кожного пікселя знаходимо локальний min/max
-  // через integral image і розтягуємо діапазон
+// ── CLAHE: локальна нормалізація контрасту через integral image ──
+function clahe(idata, w, h, radius=40){
   const gray=new Uint8Array(w*h);
   for(let i=0;i<w*h;i++) gray[i]=(77*idata.data[i*4]+150*idata.data[i*4+1]+29*idata.data[i*4+2])>>8;
-
-  // Integral image для gray
-  const ii=new Float32Array(w*h);
-  const ii2=new Float32Array(w*h);
+  const ii=new Float32Array(w*h), ii2=new Float32Array(w*h);
   for(let y=0;y<h;y++) for(let x=0;x<w;x++){
     const v=gray[y*w+x];
     ii[y*w+x]=v+(x>0?ii[y*w+x-1]:0)+(y>0?ii[(y-1)*w+x]:0)-(x>0&&y>0?ii[(y-1)*w+x-1]:0);
     ii2[y*w+x]=v*v+(x>0?ii2[y*w+x-1]:0)+(y>0?ii2[(y-1)*w+x]:0)-(x>0&&y>0?ii2[(y-1)*w+x-1]:0);
   }
-
   const out=new ImageData(w,h);
   for(let y=0;y<h;y++) for(let x=0;x<w;x++){
     const x1=Math.max(0,x-radius),x2=Math.min(w-1,x+radius);
@@ -191,25 +189,61 @@ function localContrast(idata, w, h, radius=40){
     const sm2=ii2[y2*w+x2]-(x1?ii2[y2*w+x1-1]:0)-(y1?ii2[(y1-1)*w+x2]:0)+(x1&&y1?ii2[(y1-1)*w+x1-1]:0);
     const mean=sm/cnt;
     const std=Math.sqrt(Math.max(0,sm2/cnt-mean*mean));
-    const scale=std>8?60/std:1; // нормалізуємо до std=60
+    const scale=std>8?60/std:1;
     const i=y*w+x;
     for(let c=0;c<3;c++){
-      const ch=idata.data[i*4+c];
-      const norm=Math.round(128+(ch-mean)*scale);
-      out.data[i*4+c]=Math.max(0,Math.min(255,norm));
+      out.data[i*4+c]=Math.max(0,Math.min(255,Math.round(128+(idata.data[i*4+c]-mean)*scale)));
     }
     out.data[i*4+3]=255;
   }
   return out;
 }
 
-// ── ГОЛОВНА ФУНКЦІЯ ПРЕПРОЦЕСИНГУ ──
-// Вхід: HTMLImageElement + EXIF orient
-// Вихід: ImageData з бінаризованими каналами R/G/B
-function preprocess(img, orient, maxSide=900){
-  Lh('PRE-PROCESSING');
+// ── Otsu threshold для одного каналу ──
+function otsuThresh(ch){
+  const hist=new Int32Array(256);for(const v of ch)hist[v]++;
+  const N=ch.length;let sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];
+  let wb=0,sb=0,best=0,bestT=128;
+  for(let t=0;t<256;t++){wb+=hist[t];if(!wb)continue;const wf=N-wb;if(!wf)break;sb+=t*hist[t];const mb=sb/wb,mf=(sum-sb)/wf,v=wb*wf*(mb-mf)*(mb-mf);if(v>best){best=v;bestT=t;}}
+  return bestT;
+}
 
-  // 1. EXIF rotation
+// ── ФАЗА 1: підготовка для findFrame (агресивна, для пошуку рамки) ──
+// blur(2) → CLAHE → grayscale Otsu → бінаризований ImageData
+function prepareForFrame(idata, w, h){
+  // 1. Сильніший blur (2 проходи) — давимо муар екрана
+  const blurred=gaussianBlur(idata,w,h,2);
+  // 2. CLAHE — вирівнюємо локальний контраст
+  const enhanced=clahe(blurred,w,h,40);
+  // 3. Grayscale Otsu бінаризація — максимальна чіткість рамки
+  const gray=new Uint8Array(w*h);
+  for(let i=0;i<w*h;i++) gray[i]=(77*enhanced.data[i*4]+150*enhanced.data[i*4+1]+29*enhanced.data[i*4+2])>>8;
+  const thr=otsuThresh(gray);
+  const out=new ImageData(w,h);
+  for(let i=0;i<w*h;i++){
+    const v=gray[i]>thr?255:0;
+    out.data[i*4]=v; out.data[i*4+1]=v; out.data[i*4+2]=v; out.data[i*4+3]=255;
+  }
+  return{forFrame:out, threshold:thr};
+}
+
+// ── ФАЗА 2: м'яка підготовка для warp і декодування (зберігаємо півтони) ──
+// blur(1) → unsharp → ImageData зі збереженими кольорами
+function prepareForDecode(idata, w, h){
+  const blurred=gaussianBlur(idata,w,h,1);
+  const sharpened=unsharpMask(blurred,w,h,0.8);
+  return sharpened;
+}
+
+// ── Відображення проміжного стану на canvas ──
+function showDebugCanvas(idata, w, h, label){
+  mainCnv.width=w; mainCnv.height=h;
+  mainCnv.getContext('2d').putImageData(idata,0,0);
+  setSt(label,null);
+}
+
+// ── ГОЛОВНИЙ ПРЕПРОЦЕСИНГ: resize + EXIF ──
+function prepareRaw(img, orient, maxSide=900){
   let src;
   if(orient&&orient!==1){
     src=applyExifRotation(img,orient);
@@ -219,51 +253,11 @@ function preprocess(img, orient, maxSide=900){
     src.width=img.naturalWidth; src.height=img.naturalHeight;
     src.getContext('2d').drawImage(img,0,0);
   }
-
-  // 2. Resize
   let w=src.width, h=src.height;
   if(Math.max(w,h)>maxSide){const s=maxSide/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
   const c=document.createElement('canvas');c.width=w;c.height=h;
   c.getContext('2d').drawImage(src,0,0,w,h);
-  const idata=c.getContext('2d').getImageData(0,0,w,h);
-  Li('  Розмір: '+w+'×'+h);
-
-  // 3. Легкий blur — прибирає муар і піксельний шум монітора
-  const blurred=gaussianBlur(idata,w,h,1);
-  Li('  → Gaussian blur 1px (придушення муару)');
-
-  // 4. Бінаризація по каналах R, G, B окремо (Otsu)
-  //    Кожен канал → монохромне зображення → Otsu поріг → 0 або 255
-  //    Потім збираємо назад в ImageData де R=bin(R), G=bin(G), B=bin(B)
-  const d=blurred.data;
-
-  // Витягуємо канали
-  const chR=new Uint8Array(w*h), chG=new Uint8Array(w*h), chB=new Uint8Array(w*h);
-  for(let i=0;i<w*h;i++){chR[i]=d[i*4];chG[i]=d[i*4+1];chB[i]=d[i*4+2];}
-
-  // Otsu для кожного каналу
-  function otsuCh(ch){
-    const hist=new Int32Array(256);for(const v of ch)hist[v]++;
-    const N=ch.length;let sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];
-    let wb=0,sb=0,best=0,bestT=128;
-    for(let t=0;t<256;t++){wb+=hist[t];if(!wb)continue;const wf=N-wb;if(!wf)break;sb+=t*hist[t];const mb=sb/wb,mf=(sum-sb)/wf,v=wb*wf*(mb-mf)*(mb-mf);if(v>best){best=v;bestT=t;}}
-    return bestT;
-  }
-
-  const tR=otsuCh(chR), tG=otsuCh(chG), tB=otsuCh(chB);
-  Li('  Otsu поріг: R='+tR+' G='+tG+' B='+tB);
-
-  // Бінаризуємо: значення вище порогу → 255, нижче → 0
-  const out=new ImageData(w,h);
-  for(let i=0;i<w*h;i++){
-    out.data[i*4]  =chR[i]>tR?255:0;
-    out.data[i*4+1]=chG[i]>tG?255:0;
-    out.data[i*4+2]=chB[i]>tB?255:0;
-    out.data[i*4+3]=255;
-  }
-
-  Li('  → Бінаризація R/G/B по Otsu завершена');
-  return{idata:out,w,h};
+  return{idata:c.getContext('2d').getImageData(0,0,w,h),w,h};
 }
 
 // ════════════════════════════════════════════════════════
@@ -477,33 +471,59 @@ function findFrame(idata,w,h){
 // ── DRAW ──
 const mainCnv=document.getElementById('cnv');
 
+// Малює фінальний варп із сіткою, маркерами і колами
+function drawWarpedResult(warped,S,zebra){
+  mainCnv.width=S;mainCnv.height=S;
+  const ctx=mainCnv.getContext('2d');
+  ctx.putImageData(warped,0,0);
+  const{T,modSize}=zebra;
+  // Сітка
+  ctx.strokeStyle='rgba(40,120,200,0.18)';ctx.lineWidth=0.5;
+  for(let i=0;i<=T;i++){const p=i*modSize;ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,S);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(S,p);ctx.stroke();}
+  // Рамкові смуги зебри
+  for(let i=0;i<T;i++){
+    ctx.fillStyle=(i%2===0)?'rgba(255,80,80,0.18)':'rgba(80,180,255,0.10)';
+    ctx.fillRect(i*modSize,0,modSize,modSize);ctx.fillRect(i*modSize,S-modSize,modSize,modSize);
+    if(i>0&&i<T-1){ctx.fillRect(0,i*modSize,modSize,modSize);ctx.fillRect(S-modSize,i*modSize,modSize,modSize);}
+  }
+  // Кути (жовті)
+  ctx.fillStyle='rgba(255,220,50,0.45)';
+  [[0,0],[S-modSize,0],[S-modSize,S-modSize],[0,S-modSize]].forEach(([x,y])=>ctx.fillRect(x,y,modSize,modSize));
+  // Внутрішня рамка
+  ctx.strokeStyle='rgba(80,235,120,0.55)';ctx.lineWidth=1.5;
+  ctx.strokeRect(modSize,modSize,(T-2)*modSize,(T-2)*modSize);
+  // Кола зондування
+  const cr=modSize*0.28;ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=Math.max(0.8,modSize*0.06);
+  for(let row=1;row<T-1;row++)for(let col=1;col<T-1;col++){ctx.beginPath();ctx.arc(col*modSize+modSize/2,row*modSize+modSize/2,cr,0,Math.PI*2);ctx.stroke();}
+}
+
+// Малює бінаризоване зображення (фаза 1) з накладеними кутами рамки
+function drawFrameDebug(frameIdata, w, h, corners, label){
+  mainCnv.width=w;mainCnv.height=h;
+  const ctx=mainCnv.getContext('2d');
+  ctx.putImageData(frameIdata,0,0);
+  if(corners){
+    const c=corners;
+    // Контур рамки
+    ctx.strokeStyle='#00ff88';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(c.tl.x,c.tl.y);ctx.lineTo(c.tr.x,c.tr.y);ctx.lineTo(c.br.x,c.br.y);ctx.lineTo(c.bl.x,c.bl.y);ctx.closePath();ctx.stroke();
+    // Кути — кола
+    ctx.fillStyle='#ffdd00';
+    [c.tl,c.tr,c.br,c.bl].forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,7,0,Math.PI*2);ctx.fill();});
+    // Підпис
+    ctx.fillStyle='rgba(0,255,136,0.85)';ctx.font='bold 13px monospace';
+    ctx.fillText(label||'FRAME DETECTED',8,20);
+  } else {
+    ctx.fillStyle='rgba(235,85,85,0.85)';ctx.font='bold 13px monospace';
+    ctx.fillText(label||'FRAME NOT FOUND',8,20);
+  }
+}
+
 function drawResult(warped,S,zebra,idata,w,h,corners){
   if(warped&&zebra){
-    mainCnv.width=S;mainCnv.height=S;
-    const ctx=mainCnv.getContext('2d');
-    ctx.putImageData(warped,0,0);
-    const{T,modSize}=zebra;
-    ctx.strokeStyle='rgba(40,120,200,0.18)';ctx.lineWidth=0.5;
-    for(let i=0;i<=T;i++){const p=i*modSize;ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,S);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(S,p);ctx.stroke();}
-    for(let i=0;i<T;i++){
-      ctx.fillStyle=(i%2===0)?'rgba(255,80,80,0.18)':'rgba(80,180,255,0.10)';
-      ctx.fillRect(i*modSize,0,modSize,modSize);ctx.fillRect(i*modSize,S-modSize,modSize,modSize);
-      if(i>0&&i<T-1){ctx.fillRect(0,i*modSize,modSize,modSize);ctx.fillRect(S-modSize,i*modSize,modSize,modSize);}
-    }
-    ctx.fillStyle='rgba(255,220,50,0.45)';
-    [[0,0],[S-modSize,0],[S-modSize,S-modSize],[0,S-modSize]].forEach(([x,y])=>ctx.fillRect(x,y,modSize,modSize));
-    ctx.strokeStyle='rgba(80,235,120,0.55)';ctx.lineWidth=1.5;
-    ctx.strokeRect(modSize,modSize,(T-2)*modSize,(T-2)*modSize);
-    const cr=modSize*0.28;ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=Math.max(0.8,modSize*0.06);
-    for(let row=1;row<T-1;row++)for(let col=1;col<T-1;col++){ctx.beginPath();ctx.arc(col*modSize+modSize/2,row*modSize+modSize/2,cr,0,Math.PI*2);ctx.stroke();}
+    drawWarpedResult(warped,S,zebra);
   } else if(idata){
-    mainCnv.width=w;mainCnv.height=h;
-    const ctx=mainCnv.getContext('2d');ctx.putImageData(idata,0,0);
-    if(corners){
-      ctx.strokeStyle='#eb5555';ctx.lineWidth=2;
-      const c=corners;ctx.beginPath();ctx.moveTo(c.tl.x,c.tl.y);ctx.lineTo(c.tr.x,c.tr.y);ctx.lineTo(c.br.x,c.br.y);ctx.lineTo(c.bl.x,c.bl.y);ctx.closePath();ctx.stroke();
-      ctx.fillStyle='#eb5555';[c.tl,c.tr,c.br,c.bl].forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,5,0,Math.PI*2);ctx.fill();});
-    }
+    drawFrameDebug(idata,w,h,corners,'FRAME SEARCH');
   }
 }
 
@@ -528,44 +548,81 @@ function buildRGBPanel(warped,S,T,modSize,circles){
   }
 }
 
-// ── MAIN RUN ──
-function run(idata,w,h){
-  // Декодер v5.1 — незмінний
-  Lh('1. ПОШУК РАМКИ');
-  const{corners,spread:sp}=findFrame(idata,w,h);
+// ── MAIN RUN (двофазний конвеєр) ──
+function run(rawIdata, w, h){
+
+  // ══ ФАЗА 1: ПОШУК РАМКИ ══
+  // Агресивна підготовка: blur(2) → CLAHE → Otsu бінаризація
+  Lh('ФАЗА 1 · ПІДГОТОВКА ДЛЯ ПОШУКУ РАМКИ');
+  const{forFrame, threshold}=prepareForFrame(rawIdata,w,h);
+  Li('  blur×2 → CLAHE → Otsu thr='+threshold+' → бінаризація');
+  // Показуємо бінаризоване зображення на canvas одразу
+  mainCnv.style.display='block';
+  mainCnv.width=w; mainCnv.height=h;
+  mainCnv.getContext('2d').putImageData(forFrame,0,0);
+
+  Lh('1. ПОШУК РАМКИ (на бінаризованому)');
+  // findFrame — незмінний, отримує бінаризоване зображення
+  const{corners,spread:sp}=findFrame(forFrame,w,h);
   if(!corners||sp<20){
-    Le('Рамку не знайдено');
-    drawResult(null,null,null,idata,w,h,corners);
+    Le('Рамку не знайдено (spread='+Math.round(sp||0)+'px)');
+    drawFrameDebug(forFrame,w,h,null,'FRAME NOT FOUND · spread='+Math.round(sp||0));
     setSt('✗ рамку не знайдено',false);
     return;
   }
   const exp=6;
-  const c={tl:{x:corners.tl.x-exp,y:corners.tl.y-exp},tr:{x:corners.tr.x+exp,y:corners.tr.y-exp},br:{x:corners.br.x+exp,y:corners.br.y+exp},bl:{x:corners.bl.x-exp,y:corners.bl.y+exp}};
+  const c={
+    tl:{x:corners.tl.x-exp,y:corners.tl.y-exp},
+    tr:{x:corners.tr.x+exp,y:corners.tr.y-exp},
+    br:{x:corners.br.x+exp,y:corners.br.y+exp},
+    bl:{x:corners.bl.x-exp,y:corners.bl.y+exp}
+  };
   Li('TL('+c.tl.x+','+c.tl.y+') TR('+c.tr.x+','+c.tr.y+') BR('+c.br.x+','+c.br.y+') BL('+c.bl.x+','+c.bl.y+')');
+  Lok('spread='+Math.round(sp)+'px');
 
-  Lh('2. WARP');
-  const S=600; // ТОЧНО як v5.1
-  const warped=warpPerspective(idata,w,h,c,S);
-  if(!warped){Le('Гомографія не вдалася');setSt('✗ warp failed',false);return;}
-  Lok('Warp → '+S+'×'+S);
+  // Показуємо бінаризацію з накладеними кутами рамки
+  drawFrameDebug(forFrame,w,h,c,'FRAME · spread='+Math.round(sp)+'px');
 
-  Lh('3. ЗЕБРА');
-  const wGray=toGray(warped,S,S);
-  const zebra=verifyZebra(wGray,S,50); // minContrast=50, ТОЧНО як v5.1
-  if(zebra)Li('  голоси: '+zebra.voteStr);
-  if(!zebra){Le('Зебру не знайдено');drawResult(warped,S,null,idata,w,h,c);setSt('✗ зебру не знайдено',false);return;}
+  // Тест warp + verifyZebra на бінаризованому — щоб підтвердити T
+  Lh('2. WARP (перевірочний, на бінаризованому)');
+  const S=600;
+  const warpedBin=warpPerspective(forFrame,w,h,c,S);
+  if(!warpedBin){Le('Гомографія не вдалася');setSt('✗ warp failed',false);return;}
+
+  Lh('3. ЗЕБРА (verifyZebra на бінаризованому)');
+  const wGrayBin=toGray(warpedBin,S,S);
+  const zebra=verifyZebra(wGrayBin,S,50); // незмінно: minContrast=50
+  if(zebra) Li('  голоси: '+zebra.voteStr);
+  if(!zebra){
+    Le('Зебру не знайдено');
+    drawResult(warpedBin,S,null,forFrame,w,h,c);
+    setSt('✗ зебру не знайдено',false);
+    return;
+  }
   Lok('T='+zebra.T+'  mod='+zebra.modSize.toFixed(1)+'px  conf='+(zebra.confidence*100).toFixed(0)+'%');
 
-  Lh('4. КРУЖЕЧКИ');
-  const circles=sampleCircles(warped,S,zebra.T,zebra.modSize);
-  const lumas=circles.cells.map(c=>(c.r+c.g+c.b)/3).sort((a,b)=>a-b);
-  Li('  '+circles.cells.length+' шт  r='+circles.circleR.toFixed(1)+'px');
-  Li('  яскравість: min='+lumas[0].toFixed(0)+' med='+lumas[lumas.length>>1].toFixed(0)+' max='+lumas[lumas.length-1].toFixed(0));
+  // ══ ФАЗА 2: ДЕКОДУВАННЯ ══
+  // М'яка підготовка: blur(1) → unsharp, без бінаризації
+  Lh('ФАЗА 2 · ПІДГОТОВКА ДЛЯ ДЕКОДУВАННЯ');
+  const softIdata=prepareForDecode(rawIdata,w,h);
+  Li('  blur×1 → unsharp(0.8) → збережено кольори і півтони');
 
-  Lh('5. ДЕКОДУВАННЯ');
+  Lh('4. WARP (фінальний, на м\'якому зображенні)');
+  const warped=warpPerspective(softIdata,w,h,c,S);
+  if(!warped){Le('Warp (soft) не вдався');setSt('✗ warp-soft failed',false);return;}
+  Lok('Warp → '+S+'×'+S);
+
+  Lh('5. КРУЖЕЧКИ');
+  const circles=sampleCircles(warped,S,zebra.T,zebra.modSize);
+  const lumas=circles.cells.map(cl=>(cl.r+cl.g+cl.b)/3).sort((a,b)=>a-b);
+  Li('  '+circles.cells.length+' шт  r='+circles.circleR.toFixed(1)+'px');
+  Li('  яскр: min='+lumas[0].toFixed(0)+' med='+lumas[lumas.length>>1].toFixed(0)+' max='+lumas[lumas.length-1].toFixed(0));
+
+  Lh('6. ДЕКОДУВАННЯ');
   const decoded=decodeCircles(circles,zebra.T);
 
-  drawResult(warped,S,zebra,idata,w,h,c);
+  // Фінальна візуалізація — варп із сіткою/колами (як у галереї)
+  drawWarpedResult(warped,S,zebra);
   buildRGBPanel(warped,S,zebra.T,zebra.modSize,circles);
 
   if(decoded&&decoded.text!==null){
@@ -578,13 +635,17 @@ function run(idata,w,h){
 }
 
 // ── ENTRY POINTS ──
-function processImage(img,orient,keepLog=false){
-  if(!keepLog) clrLog();
+function processImage(img, orient){
+  clrLog();
   document.getElementById('vidWrap').style.display='none';
   mainCnv.style.display='block';
   setSt('обробка…',null);
-  const{idata,w,h}=preprocess(img,orient,900);
-  run(idata,w,h);
+  // prepareRaw: тільки resize + EXIF — без обробки
+  // Далі run() сам ділить на фазу 1 і фазу 2
+  Lh('ВХІД');
+  const{idata:rawIdata,w,h}=prepareRaw(img,orient,900);
+  Li('  Розмір: '+w+'×'+h);
+  run(rawIdata,w,h);
 }
 
 // Файл
@@ -609,118 +670,36 @@ const vidWrap=document.getElementById('vidWrap');
 
 document.getElementById('camBtn').addEventListener('click',async()=>{
   try{
+    // Запитуємо максимальну роздільну здатність — більше пікселів = кращий муар
     stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}}
+      video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}
     });
-    vid.srcObject=stream;
-    await vid.play();
-    vidWrap.style.display='flex';
-    mainCnv.style.display='none';
+    vid.srcObject=stream;await vid.play();
+    vidWrap.style.display='flex';mainCnv.style.display='none';
     document.getElementById('camBtn').style.display='none';
-    document.getElementById('capBtn').style.display='none'; // прибираємо ручну кнопку
+    document.getElementById('capBtn').style.display='inline';
     document.getElementById('stopBtn').style.display='inline';
-    // Автоматично починаємо відлік
-    startCountdown();
-  }catch(err){
-    Le('Камера: '+err.message);
-    setSt('✗ '+err.message,false);
-  }
+    setSt('◎ камера — наведи і натисни Знімок',null);
+  }catch(err){Le('Камера: '+err.message);setSt('✗ '+err.message,false);}
 });
 
-function startCountdown(){
-  let count=3;
-  setSt('▶ старт через '+count+'…',null);
-  const timer=setInterval(()=>{
-    count--;
-    if(count>0){
-      setSt('▶ старт через '+count+'…',null);
-    } else {
-      clearInterval(timer);
-      setSt('◎ знімаю…',null);
-      clrLog();
-      Lh('СЕРІЯ З 5 ЗНІМКІВ');
-      startShooting();
-    }
-  },1000);
-}
-
-function startShooting(){
-  const TOTAL=5;
-  const DELAY=700;
-  const shots=[];
-  let current=0;
-
-  function takeShot(){
-    if(current>=TOTAL){ processBestShot(shots); return; }
-    current++;
-    setSt('◎ знімок '+current+'/'+TOTAL,null);
-    setTimeout(()=>{
-      const tmp=document.createElement('canvas');
-      tmp.width=vid.videoWidth||640;
-      tmp.height=vid.videoHeight||480;
-      tmp.getContext('2d').drawImage(vid,0,0);
-
-      // Оцінка різкості
-      const id=tmp.getContext('2d').getImageData(0,0,tmp.width,tmp.height);
-      const gray=new Uint8Array(tmp.width*tmp.height);
-      const w=tmp.width,h=tmp.height;
-      for(let i=0;i<gray.length;i++) gray[i]=(77*id.data[i*4]+150*id.data[i*4+1]+29*id.data[i*4+2])>>8;
-      let lapSum=0,cnt=0;
-      for(let y=1;y<h-1;y+=3) for(let x=1;x<w-1;x+=3){
-        const lap=Math.abs(4*gray[y*w+x]-gray[(y-1)*w+x]-gray[(y+1)*w+x]-gray[y*w+x-1]-gray[y*w+x+1]);
-        lapSum+=lap;cnt++;
-      }
-      const sharpness=lapSum/cnt;
-
-      // Оцінка spread рамки
-      const corners_s=[];
-      for(let dy=0;dy<5;dy++) for(let dx=0;dx<5;dx++){
-        corners_s.push(gray[dy*w+dx],gray[dy*w+(w-1-dx)],gray[(h-1-dy)*w+dx],gray[(h-1-dy)*w+(w-1-dx)]);
-      }
-      corners_s.sort((a,b)=>a-b);
-      const bg_val=corners_s[corners_s.length>>1];
-      const mask=new Uint8Array(w*h);
-      for(let i=0;i<w*h;i++) mask[i]=Math.abs(gray[i]-bg_val)>42?1:0;
-      let tlS=1e9,trS=-1e9,brS=-1e9,blS=1e9;
-      for(let y=0;y<h;y++) for(let x=0;x<w;x++){
-        if(!mask[y*w+x])continue;
-        const s=x+y,d=x-y;
-        if(s<tlS)tlS=s;if(d>trS)trS=d;if(s>brS)brS=s;if(d<blS)blS=d;
-      }
-      const sp=tlS<1e9?Math.sqrt((trS-blS)**2+(brS-tlS)**2)/Math.sqrt(2):0;
-      const score=sharpness*0.4+sp*0.6;
-
-      Li('  Знімок '+current+': різкість='+sharpness.toFixed(1)+' spread='+Math.round(sp)+' score='+score.toFixed(1));
-      shots.push({canvas:tmp,sharpness,spread:sp,score,idx:current});
-      takeShot();
-    }, current===1?400:DELAY);
-  }
-  takeShot();
-}
-
-function processBestShot(shots){
-  shots.sort((a,b)=>b.score-a.score);
-  const best=shots[0];
-  Lh('ВІДБІР');
-  shots.forEach(s=>Li('  Знімок '+s.idx+': score='+s.score.toFixed(1)+(s.idx===best.idx?' ← ОБРАНО':'')));
-
-  // Показуємо обраний знімок
-  vidWrap.style.display='none';
-  mainCnv.style.display='block';
-  mainCnv.width=best.canvas.width;
-  mainCnv.height=best.canvas.height;
-  mainCnv.getContext('2d').drawImage(best.canvas,0,0);
-  setSt('⟳ обробка…',null);
-
+document.getElementById('capBtn').addEventListener('click',()=>{
+  if(!stream)return;
+  // Знімаємо у повній роздільній здатності відео
+  const tmp=document.createElement('canvas');
+  tmp.width=vid.videoWidth||1280;tmp.height=vid.videoHeight||720;
+  tmp.getContext('2d').drawImage(vid,0,0);
+  clrLog();
+  Li('Знімок з камери: '+tmp.width+'×'+tmp.height);
   const img=new Image();
-  img.onload=()=>setTimeout(()=>processImage(img,1,true),50);
-  img.src=best.canvas.toDataURL('image/jpeg',0.95);
-}
+  img.onload=()=>setTimeout(()=>processImage(img,1),30);
+  // JPEG 0.95 — мінімальні артефакти стиснення
+  img.src=tmp.toDataURL('image/jpeg',0.95);
+});
 
 document.getElementById('stopBtn').addEventListener('click',()=>{
   if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
-  vidWrap.style.display='none';
-  mainCnv.style.display='block';
+  vidWrap.style.display='none';mainCnv.style.display='block';
   document.getElementById('camBtn').style.display='inline';
   document.getElementById('capBtn').style.display='none';
   document.getElementById('stopBtn').style.display='none';

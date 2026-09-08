@@ -609,7 +609,7 @@ const vidWrap=document.getElementById('vidWrap');
 
 document.getElementById('camBtn').addEventListener('click',async()=>{
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}}});
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});
     vid.srcObject=stream;await vid.play();
     vidWrap.style.display='flex';mainCnv.style.display='none';
     document.getElementById('camBtn').style.display='none';

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZEBRA FINDER · v6.4</title>
+<title>ZEBRA FINDER · v6.5</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:#060608;color:#9a9aaa;font:11px/1.6 'Courier New',monospace}
@@ -37,7 +37,7 @@ input[type=file]{display:none}
 <div id="app">
   <div id="left">
     <div id="topbar">
-      <h1>ZEBRA·v6.4</h1>
+      <h1>ZEBRA·v6.5</h1>
       <label class="btn">▶ Файл<input type="file" id="fin" accept="image/*"></label>
       <button class="btn" id="camBtn">◎ Камера</button>
       <button class="btn" id="capBtn" style="display:none">● Знімок</button>
@@ -609,67 +609,76 @@ const vidWrap=document.getElementById('vidWrap');
 
 document.getElementById('camBtn').addEventListener('click',async()=>{
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}}});
-    vid.srcObject=stream;await vid.play();
-    vidWrap.style.display='flex';mainCnv.style.display='none';
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}}
+    });
+    vid.srcObject=stream;
+    await vid.play();
+    vidWrap.style.display='flex';
+    mainCnv.style.display='none';
     document.getElementById('camBtn').style.display='none';
-    document.getElementById('capBtn').style.display='inline';
+    document.getElementById('capBtn').style.display='none'; // прибираємо ручну кнопку
     document.getElementById('stopBtn').style.display='inline';
-    setSt('◎ камера активна',null);
-  }catch(err){Le('Камера: '+err.message);setSt('✗ '+err.message,false);}
+    // Автоматично починаємо відлік
+    startCountdown();
+  }catch(err){
+    Le('Камера: '+err.message);
+    setSt('✗ '+err.message,false);
+  }
 });
 
-// ── 5 ЗНІМКІВ: вибір найкращого ──
-document.getElementById('capBtn').addEventListener('click',()=>{
-  if(!stream)return;
-  clrLog();
-  Lh('СЕРІЯ З 5 ЗНІМКІВ');
-  setSt('◎ знімаю…',null);
+function startCountdown(){
+  let count=3;
+  setSt('▶ старт через '+count+'…',null);
+  const timer=setInterval(()=>{
+    count--;
+    if(count>0){
+      setSt('▶ старт через '+count+'…',null);
+    } else {
+      clearInterval(timer);
+      setSt('◎ знімаю…',null);
+      clrLog();
+      Lh('СЕРІЯ З 5 ЗНІМКІВ');
+      startShooting();
+    }
+  },1000);
+}
 
+function startShooting(){
   const TOTAL=5;
-  const DELAY=600; // мс між знімками — дає камері стабілізуватись
+  const DELAY=700;
   const shots=[];
   let current=0;
 
   function takeShot(){
-    if(current>=TOTAL){
-      processBestShot(shots);
-      return;
-    }
+    if(current>=TOTAL){ processBestShot(shots); return; }
     current++;
-    setSt('◎ знімок '+current+'/'+TOTAL+'…',null);
-
-    // Затримка перед знімком щоб автофокус встиг
+    setSt('◎ знімок '+current+'/'+TOTAL,null);
     setTimeout(()=>{
       const tmp=document.createElement('canvas');
       tmp.width=vid.videoWidth||640;
       tmp.height=vid.videoHeight||480;
       tmp.getContext('2d').drawImage(vid,0,0);
 
-      // Швидка оцінка якості: різкість (Laplacian variance)
-      const ctx=tmp.getContext('2d');
-      const id=ctx.getImageData(0,0,tmp.width,tmp.height);
+      // Оцінка різкості
+      const id=tmp.getContext('2d').getImageData(0,0,tmp.width,tmp.height);
       const gray=new Uint8Array(tmp.width*tmp.height);
+      const w=tmp.width,h=tmp.height;
       for(let i=0;i<gray.length;i++) gray[i]=(77*id.data[i*4]+150*id.data[i*4+1]+29*id.data[i*4+2])>>8;
-
-      let lapSum=0, cnt=0;
-      const w=tmp.width, h=tmp.height;
+      let lapSum=0,cnt=0;
       for(let y=1;y<h-1;y+=3) for(let x=1;x<w-1;x+=3){
         const lap=Math.abs(4*gray[y*w+x]-gray[(y-1)*w+x]-gray[(y+1)*w+x]-gray[y*w+x-1]-gray[y*w+x+1]);
-        lapSum+=lap; cnt++;
+        lapSum+=lap;cnt++;
       }
       const sharpness=lapSum/cnt;
 
-      // Також оцінюємо spread рамки (швидко, без повного пайплайну)
-      const bg_s=5;
+      // Оцінка spread рамки
       const corners_s=[];
-      for(let dy=0;dy<bg_s;dy++) for(let dx=0;dx<bg_s;dx++){
+      for(let dy=0;dy<5;dy++) for(let dx=0;dx<5;dx++){
         corners_s.push(gray[dy*w+dx],gray[dy*w+(w-1-dx)],gray[(h-1-dy)*w+dx],gray[(h-1-dy)*w+(w-1-dx)]);
       }
       corners_s.sort((a,b)=>a-b);
       const bg_val=corners_s[corners_s.length>>1];
-
-      // Груба маска для оцінки spread
       const mask=new Uint8Array(w*h);
       for(let i=0;i<w*h;i++) mask[i]=Math.abs(gray[i]-bg_val)>42?1:0;
       let tlS=1e9,trS=-1e9,brS=-1e9,blS=1e9;
@@ -679,41 +688,30 @@ document.getElementById('capBtn').addEventListener('click',()=>{
         if(s<tlS)tlS=s;if(d>trS)trS=d;if(s>brS)brS=s;if(d<blS)blS=d;
       }
       const sp=tlS<1e9?Math.sqrt((trS-blS)**2+(brS-tlS)**2)/Math.sqrt(2):0;
-
-      const score=sharpness*0.4 + sp*0.6; // зважена оцінка
+      const score=sharpness*0.4+sp*0.6;
 
       Li('  Знімок '+current+': різкість='+sharpness.toFixed(1)+' spread='+Math.round(sp)+' score='+score.toFixed(1));
-      shots.push({canvas:tmp, sharpness, spread:sp, score, idx:current});
-
+      shots.push({canvas:tmp,sharpness,spread:sp,score,idx:current});
       takeShot();
-    }, current===1 ? 300 : DELAY); // перший знімок швидше
+    }, current===1?400:DELAY);
   }
-
   takeShot();
-});
+}
 
 function processBestShot(shots){
-  // Сортуємо по score — найкращий перший
   shots.sort((a,b)=>b.score-a.score);
   const best=shots[0];
+  Lh('ВІДБІР');
+  shots.forEach(s=>Li('  Знімок '+s.idx+': score='+s.score.toFixed(1)+(s.idx===best.idx?' ← ОБРАНО':'')));
 
-  Lh('РЕЗУЛЬТАТ ВІДБОРУ');
-  shots.forEach(s=>{
-    const mark = s.idx===best.idx ? ' ← ОБРАНО' : '';
-    Li('  Знімок '+s.idx+': score='+s.score.toFixed(1)+mark);
-  });
-
-  Li('Обрано знімок '+best.idx+' (score='+best.score.toFixed(1)+')');
-
-  // Показуємо обраний знімок поки обробляємо
+  // Показуємо обраний знімок
   vidWrap.style.display='none';
   mainCnv.style.display='block';
   mainCnv.width=best.canvas.width;
   mainCnv.height=best.canvas.height;
   mainCnv.getContext('2d').drawImage(best.canvas,0,0);
-  setSt('⟳ обробка найкращого знімка…',null);
+  setSt('⟳ обробка…',null);
 
-  // Запускаємо повний пайплайн
   const img=new Image();
   img.onload=()=>setTimeout(()=>processImage(img,1,true),50);
   img.src=best.canvas.toDataURL('image/jpeg',0.95);
@@ -721,7 +719,8 @@ function processBestShot(shots){
 
 document.getElementById('stopBtn').addEventListener('click',()=>{
   if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
-  vidWrap.style.display='none';mainCnv.style.display='block';
+  vidWrap.style.display='none';
+  mainCnv.style.display='block';
   document.getElementById('camBtn').style.display='inline';
   document.getElementById('capBtn').style.display='none';
   document.getElementById('stopBtn').style.display='none';

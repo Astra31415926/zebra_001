@@ -447,16 +447,22 @@ function toGray(idata,w,h){
   return g;
 }
 
-// ФІКС: медіана центральної зони (20% від центру) замість кутів
-// Вирішує проблему BG luma: 0 коли кути кадру камери темні
+// ФІКС: медіана периметру зображення (рамка 8% з кожного боку)
+// Вирішує одразу два кейси:
+//   1. Камера з темними кутами (кути = темний фон) → оригінальний v6.2 брав кути і давав bg=0
+//   2. Цифровий файл: білий фон по краях, орнамент в центрі → центральна медіана = 0
+// Периметр (усі 4 краї) містить переважно фон в обох кейсах.
+// Виняток: якщо камера дає темну рамку — беремо медіану, яка все одно краща за 0.
 function sampleBG(gray,w,h){
-  const cx=w>>1,cy=h>>1;
-  const rx=Math.max(1,Math.round(w*0.10));
-  const ry=Math.max(1,Math.round(h*0.10));
+  const bx=Math.max(1,Math.round(w*0.08));
+  const by=Math.max(1,Math.round(h*0.08));
   const v=[];
-  for(let y=cy-ry;y<=cy+ry;y+=2)for(let x=cx-rx;x<=cx+rx;x+=2){
-    if(x>=0&&x<w&&y>=0&&y<h)v.push(gray[y*w+x]);
-  }
+  // Верхній і нижній рядки (перші/останні by рядків)
+  for(let y=0;y<by;y++)     for(let x=0;x<w;x+=2)v.push(gray[y*w+x]);
+  for(let y=h-by;y<h;y++)   for(let x=0;x<w;x+=2)v.push(gray[y*w+x]);
+  // Лівий і правий стовпці (між by і h-by, щоб не дублювати кути)
+  for(let y=by;y<h-by;y+=2)for(let x=0;x<bx;x++)  v.push(gray[y*w+x]);
+  for(let y=by;y<h-by;y+=2)for(let x=w-bx;x<w;x++)v.push(gray[y*w+x]);
   v.sort((a,b)=>a-b);
   return v[v.length>>1];
 }

@@ -3,956 +3,640 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZEBRA GRID DECODER · v7</title>
+<title>ZEBRA FINDER · v6.2</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;background:#07070a;color:#8f8fa2;font:11px/1.6 'Courier New',monospace}
-#app{display:grid;grid-template-columns:minmax(380px,46%) 1fr;height:100vh;overflow:hidden}
-#left{display:flex;flex-direction:column;border-right:1px solid #16161f;overflow:hidden}
-#bar{padding:8px 10px;border-bottom:1px solid #16161f;display:flex;gap:5px;align-items:center;flex-wrap:wrap;flex-shrink:0}
-h1{font-size:10px;letter-spacing:3px;color:#3a7aaa;margin-right:6px}
-.btn{background:#0e0e16;border:1px solid #1e1e2a;color:#6f6f88;padding:4px 10px;cursor:pointer;font:inherit;letter-spacing:1px}
-.btn:hover{border-color:#3a7aaa;color:#d5d5e0}
-.btn.on{border-color:#3a7aaa;color:#9fd0ee;background:#101825}
+html,body{height:100%;background:#060608;color:#9a9aaa;font:11px/1.6 'Courier New',monospace}
+#app{display:grid;grid-template-columns:460px 1fr;height:100vh;overflow:hidden}
+#left{display:flex;flex-direction:column;border-right:1px solid #141420;overflow:hidden}
+#topbar{padding:8px 10px;border-bottom:1px solid #141420;display:flex;gap:5px;align-items:center;flex-shrink:0;flex-wrap:wrap}
+h1{font-size:10px;letter-spacing:3px;color:#3a7aaa;margin-right:4px}
+.btn{background:#0e0e16;border:1px solid #1e1e2e;color:#6a6a8a;padding:4px 10px;cursor:pointer;font:inherit;letter-spacing:1px}
+.btn:hover{border-color:#3a7aaa;color:#ccc}
 input[type=file]{display:none}
-#stage{flex:1;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center;position:relative}
+#canvas-wrap{flex:1;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center;position:relative}
 #cnv{display:block;max-width:100%;max-height:100%;image-rendering:pixelated}
-#vwrap{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:#000}
-#vid{max-width:100%;max-height:100%}
-#st{flex-shrink:0;padding:6px 10px;border-top:1px solid #16161f;font-size:12px;letter-spacing:1px;min-height:28px;word-break:break-all}
+#vidWrap{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:#000}
+#vid{max-width:100%;max-height:100%;display:block}
+#status-bar{flex-shrink:0;padding:5px 10px;border-top:1px solid #141420;font-size:10px;letter-spacing:2px;min-height:24px}
+#status-bar span{font-weight:700;font-size:12px}
 #right{display:flex;flex-direction:column;overflow:hidden}
-#tabs{display:flex;border-bottom:1px solid #16161f;flex-shrink:0}
-.tab{padding:6px 13px;cursor:pointer;font:inherit;font-size:10px;letter-spacing:2px;color:#444;background:none;border:none;border-right:1px solid #16161f}
+#tabs{display:flex;border-bottom:1px solid #141420;flex-shrink:0}
+.tab{padding:6px 14px;cursor:pointer;font:inherit;font-size:10px;letter-spacing:2px;color:#444;background:none;border:none;border-right:1px solid #141420}
 .tab.sel{color:#3a7aaa;background:#0a0a12}
-.pane{flex:1;overflow-y:auto;padding:8px 10px;display:none}
-.pane.vis{display:block}
-#rgbgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.tile{display:flex;flex-direction:column;gap:3px}
-.tile canvas{width:100%;image-rendering:pixelated;border:1px solid #1e1e2a;background:#050505}
-.tl{font-size:9px;letter-spacing:2px;text-align:center;color:#3a5a7a}
-.h{color:#2f7ab5;margin-top:7px;border-top:1px solid #14141c;padding-top:4px}
-.ok{color:#35a24a}.w{color:#a07a15}.e{color:#a83232}.i{color:#6f6f88}.d{color:#4a4a5c}
-#res{padding:8px 10px;border-top:1px solid #16161f;flex-shrink:0;max-height:26%;overflow-y:auto}
-.chan{display:flex;gap:8px;padding:2px 0;align-items:baseline}
-.cname{width:16px;font-weight:700}
-.ctext{color:#d5d5e0;word-break:break-all}
+#pane-log,#pane-rgb{flex:1;overflow-y:auto;padding:8px 10px;line-height:1.75;display:none}
+#pane-log.vis,#pane-rgb.vis{display:block}
+#rgb-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:4px 0}
+.rgb-tile{display:flex;flex-direction:column;gap:3px}
+.rgb-tile canvas{width:100%;image-rendering:pixelated;border:1px solid #1e1e2e}
+.rgb-lbl{font-size:9px;letter-spacing:2px;text-align:center;color:#3a5a7a}
+.lh{color:#2a6090;margin-top:5px}.lok{color:#2a7a3a}.lw{color:#8a6010}.le{color:#8a2020}.li{color:#6a6a8a}
 </style>
 </head>
 <body>
 <div id="app">
   <div id="left">
-    <div id="bar">
-      <h1>ZEBRA·GRID·v7</h1>
-      <label class="btn">Файл<input type="file" id="fin" accept="image/*"></label>
-      <button class="btn" id="camBtn">Камера</button>
-      <button class="btn" id="capBtn" style="display:none">Знімок</button>
-      <button class="btn" id="stopBtn" style="display:none">Стоп</button>
-      <span style="flex:1"></span>
-      <button class="btn view sel on" data-v="src">Оригінал</button>
-      <button class="btn view" data-v="warp">Вирівняно</button>
+    <div id="topbar">
+      <h1>ZEBRA·v6.2</h1>
+      <label class="btn">▶ Файл<input type="file" id="fin" accept="image/*"></label>
+      <button class="btn" id="camBtn">◎ Камера</button>
+      <button class="btn" id="capBtn" style="display:none">● Знімок</button>
+      <button class="btn" id="stopBtn" style="display:none">■ Стоп</button>
     </div>
-    <div id="stage">
+    <div id="canvas-wrap">
       <canvas id="cnv"></canvas>
-      <div id="vwrap"><video id="vid" autoplay playsinline muted></video></div>
+      <div id="vidWrap"><video id="vid" autoplay playsinline muted></video></div>
     </div>
-    <div id="st"><span class="d">— очікування —</span></div>
+    <div id="status-bar"><span id="st" style="color:#2a2a3a">— очікування —</span></div>
   </div>
   <div id="right">
     <div id="tabs">
-      <button class="tab sel" data-p="log">ЛОГ</button>
-      <button class="tab" data-p="rgb">КАНАЛИ</button>
+      <button class="tab sel" data-pane="log">ДІАГНОСТИКА</button>
+      <button class="tab" data-pane="rgb">RGB-КАНАЛИ</button>
     </div>
-    <div id="pane-log" class="pane vis"></div>
-    <div id="pane-rgb" class="pane"><div id="rgbgrid"></div></div>
-    <div id="res"></div>
+    <div id="pane-log" class="vis"></div>
+    <div id="pane-rgb"><div id="rgb-grid"></div></div>
   </div>
 </div>
 <script>
 'use strict';
 
-/* ═══════════════════════════════════════════════════════════════
-   ZEBRA GRID DECODER v7
-   Принцип: сітка будується ВИКЛЮЧНО з рамки-зебри.
-   Рамка = 1 модуль завтовшки, кути завжди чорні ⇒ T непарне.
-   Дані = (T-2)×(T-2). Дзеркальна надлишковість → виправлення бітів.
-   ═══════════════════════════════════════════════════════════════ */
-
-// ── ЛОГ ──────────────────────────────────────────────────────────
+// ── LOG ──
 const logEl=document.getElementById('pane-log');
-function L(m,c){const d=document.createElement('div');d.textContent=m;if(c)d.className=c;logEl.appendChild(d);}
-const Lh=m=>L('── '+m,'h'), Lok=m=>L('✓ '+m,'ok'), Lw=m=>L('! '+m,'w'),
-      Le=m=>L('× '+m,'e'), Li=m=>L('  '+m,'i'), Ld=m=>L('  '+m,'d');
-const clrLog=()=>{logEl.innerHTML='';document.getElementById('res').innerHTML='';};
-function setSt(t,k){const el=document.getElementById('st');el.innerHTML='';const s=document.createElement('span');s.textContent=t;s.className=k||'d';el.appendChild(s);}
+const aL=(m,c)=>{const d=document.createElement('div');d.textContent=m;if(c)d.className=c;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;};
+const Lh=m=>aL('── '+m,'lh'),Lok=m=>aL('✓ '+m,'lok'),Lw=m=>aL('⚠ '+m,'lw'),Le=m=>aL('✗ '+m,'le'),Li=m=>aL(m,'li');
+const clrLog=()=>{logEl.innerHTML='';};
+const setSt=(t,ok)=>{const el=document.getElementById('st');el.textContent=t;el.style.color=ok===true?'#55eb5a':ok===false?'#eb5555':'#888';};
 
-document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');
-  ['log','rgb'].forEach(n=>document.getElementById('pane-'+n).classList.toggle('vis',n===b.dataset.p));
+document.querySelectorAll('.tab').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(b=>b.classList.remove('sel'));
+    btn.classList.add('sel');
+    const p=btn.dataset.pane;
+    ['log','rgb'].forEach(n=>document.getElementById('pane-'+n).classList.toggle('vis',n===p));
+  });
 });
 
-// ── EXIF ─────────────────────────────────────────────────────────
-function exifOrient(buf){
-  const v=new DataView(buf); if(v.getUint16(0)!==0xFFD8) return 1;
+// ════════════════════════════════════════════════════════
+//  PRE-PROCESSING PIPELINE
+//  Мета: підготувати погане зображення (камера, монітор)
+//  до незмінного декодера v5.1.
+//  Декодер нижче — заморожений, не змінювати!
+// ════════════════════════════════════════════════════════
+
+// ── EXIF ──
+function getExifOrientation(buf){
+  const v=new DataView(buf);
+  if(v.getUint16(0)!==0xFFD8)return 1;
   let off=2;
   while(off<v.byteLength-4){
     const m=v.getUint16(off);
     if(m===0xFFE1){
-      if(v.getUint32(off+4)!==0x45786966) return 1;
-      const le=v.getUint16(off+10)===0x4949, ifd=off+10+v.getUint32(off+14,le), n=v.getUint16(ifd,le);
-      for(let i=0;i<n;i++) if(v.getUint16(ifd+2+i*12,le)===0x0112) return v.getUint16(ifd+2+i*12+8,le);
+      if(v.getUint32(off+4)!==0x45786966)return 1;
+      const le=v.getUint16(off+10)===0x4949;
+      const ifd=off+10+v.getUint32(off+14,le);
+      const n=v.getUint16(ifd,le);
+      for(let i=0;i<n;i++)if(v.getUint16(ifd+2+i*12,le)===0x0112)return v.getUint16(ifd+2+i*12+8,le);
       return 1;
     }
-    if((m&0xFF00)!==0xFF00) break;
+    if((m&0xFF00)!==0xFF00)break;
     off+=2+v.getUint16(off+2);
   }
   return 1;
 }
-function rotateExif(img,o){
-  const w=img.naturalWidth,h=img.naturalHeight,sw=o>=5&&o<=8;
-  const c=document.createElement('canvas'); c.width=sw?h:w; c.height=sw?w:h;
-  const x=c.getContext('2d');
-  const M=[[],[1,0,0,1,0,0],[-1,0,0,1,w,0],[-1,0,0,-1,w,h],[1,0,0,-1,0,h],
-           [0,1,1,0,0,0],[0,1,-1,0,h,0],[0,-1,-1,0,h,w],[0,-1,1,0,0,w]][o]||[1,0,0,1,0,0];
-  x.transform(M[0],M[1],M[2],M[3],M[4],M[5]); x.drawImage(img,0,0); return c;
+
+function applyExifRotation(img, orient){
+  const w=img.naturalWidth, h=img.naturalHeight;
+  const swap=orient>=5&&orient<=8;
+  const c=document.createElement('canvas');
+  c.width=swap?h:w; c.height=swap?w:h;
+  const ctx=c.getContext('2d');
+  const M=[[],[1,0,0,1,0,0],[-1,0,0,1,w,0],[-1,0,0,-1,w,h],
+            [1,0,0,-1,0,h],[0,1,1,0,0,0],[0,1,-1,0,h,0],
+            [0,-1,-1,0,h,w],[0,-1,1,0,0,w]];
+  const t=M[orient]||M[1];
+  ctx.transform(t[0],t[1],t[2],t[3],t[4],t[5]);
+  ctx.drawImage(img,0,0);
+  return c;
 }
 
-// ── ЗАВАНТАЖЕННЯ ─────────────────────────────────────────────────
-const MAXSIDE=1200;
-function toImageData(img,orient){
+// ── ШУМОЗАГЛУШЕННЯ: Gaussian blur (separable, ядро 3×3) ──
+function gaussianBlur(idata, w, h, passes=1){
+  const k=[1,2,1], ksum=4;
+  let d=new Float32Array(idata.data);
+  for(let p=0;p<passes;p++){
+    const tmp=new Float32Array(d.length);
+    // horizontal
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      for(let c=0;c<3;c++){
+        let s=0;
+        for(let dx=-1;dx<=1;dx++) s+=d[(y*w+Math.max(0,Math.min(w-1,x+dx)))*4+c]*k[dx+1];
+        tmp[(y*w+x)*4+c]=s/ksum;
+      }
+      tmp[(y*w+x)*4+3]=255;
+    }
+    // vertical
+    const tmp2=new Float32Array(tmp.length);
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      for(let c=0;c<3;c++){
+        let s=0;
+        for(let dy=-1;dy<=1;dy++) s+=tmp[(Math.max(0,Math.min(h-1,y+dy))*w+x)*4+c]*k[dy+1];
+        tmp2[(y*w+x)*4+c]=s/ksum;
+      }
+      tmp2[(y*w+x)*4+3]=255;
+    }
+    d=tmp2;
+  }
+  const out=new ImageData(w,h);
+  for(let i=0;i<d.length;i++) out.data[i]=Math.round(Math.max(0,Math.min(255,d[i])));
+  return out;
+}
+
+// ── РІЗКІСТЬ: Unsharp mask ──
+function unsharpMask(idata, w, h, amount=0.6){
+  const blurred=gaussianBlur(idata,w,h,1);
+  const out=new ImageData(w,h);
+  for(let i=0;i<w*h*4;i+=4){
+    for(let c=0;c<3;c++){
+      const orig=idata.data[i+c], blur=blurred.data[i+c];
+      out.data[i+c]=Math.max(0,Math.min(255,Math.round(orig+amount*(orig-blur))));
+    }
+    out.data[i+3]=255;
+  }
+  return out;
+}
+
+// ── КОНТРАСТ: CLAHE-подібний (локальна нормалізація) ──
+function localContrast(idata, w, h, radius=40){
+  // Спрощений варіант: для кожного пікселя знаходимо локальний min/max
+  // через integral image і розтягуємо діапазон
+  const gray=new Uint8Array(w*h);
+  for(let i=0;i<w*h;i++) gray[i]=(77*idata.data[i*4]+150*idata.data[i*4+1]+29*idata.data[i*4+2])>>8;
+
+  // Integral image для gray
+  const ii=new Float32Array(w*h);
+  const ii2=new Float32Array(w*h);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const v=gray[y*w+x];
+    ii[y*w+x]=v+(x>0?ii[y*w+x-1]:0)+(y>0?ii[(y-1)*w+x]:0)-(x>0&&y>0?ii[(y-1)*w+x-1]:0);
+    ii2[y*w+x]=v*v+(x>0?ii2[y*w+x-1]:0)+(y>0?ii2[(y-1)*w+x]:0)-(x>0&&y>0?ii2[(y-1)*w+x-1]:0);
+  }
+
+  const out=new ImageData(w,h);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const x1=Math.max(0,x-radius),x2=Math.min(w-1,x+radius);
+    const y1=Math.max(0,y-radius),y2=Math.min(h-1,y+radius);
+    const cnt=(x2-x1+1)*(y2-y1+1);
+    const sm=ii[y2*w+x2]-(x1?ii[y2*w+x1-1]:0)-(y1?ii[(y1-1)*w+x2]:0)+(x1&&y1?ii[(y1-1)*w+x1-1]:0);
+    const sm2=ii2[y2*w+x2]-(x1?ii2[y2*w+x1-1]:0)-(y1?ii2[(y1-1)*w+x2]:0)+(x1&&y1?ii2[(y1-1)*w+x1-1]:0);
+    const mean=sm/cnt;
+    const std=Math.sqrt(Math.max(0,sm2/cnt-mean*mean));
+    const scale=std>8?60/std:1; // нормалізуємо до std=60
+    const i=y*w+x;
+    for(let c=0;c<3;c++){
+      const ch=idata.data[i*4+c];
+      const norm=Math.round(128+(ch-mean)*scale);
+      out.data[i*4+c]=Math.max(0,Math.min(255,norm));
+    }
+    out.data[i*4+3]=255;
+  }
+  return out;
+}
+
+// ── ГОЛОВНА ФУНКЦІЯ ПРЕПРОЦЕСИНГУ ──
+// Вхід: HTMLImageElement + EXIF orient
+// Вихід: ImageData з бінаризованими каналами R/G/B
+function preprocess(img, orient, maxSide=900){
+  Lh('PRE-PROCESSING');
+
+  // 1. EXIF rotation
   let src;
-  if(orient&&orient!==1){src=rotateExif(img,orient);Li('EXIF orientation '+orient+' застосовано');}
-  else{src=document.createElement('canvas');src.width=img.naturalWidth;src.height=img.naturalHeight;
-       src.getContext('2d').drawImage(img,0,0);}
-  let w=src.width,h=src.height;
-  if(Math.max(w,h)>MAXSIDE){const s=MAXSIDE/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
-  const c=document.createElement('canvas');c.width=w;c.height=h;
-  const g=c.getContext('2d',{willReadFrequently:true});
-  g.imageSmoothingEnabled=true; g.imageSmoothingQuality='high';
-  g.drawImage(src,0,0,w,h);
-  return {idata:g.getImageData(0,0,w,h),w,h};
-}
-function blur3(id,w,h){
-  const s=id.data,t=new Float32Array(w*h*3),o=new ImageData(w,h),d=o.data;
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const i=(y*w+x)*3;
-    for(let c=0;c<3;c++){
-      const a=s[(y*w+Math.max(0,x-1))*4+c],b=s[(y*w+x)*4+c],e=s[(y*w+Math.min(w-1,x+1))*4+c];
-      t[i+c]=(a+2*b+e)/4;
-    }
-  }
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const i=(y*w+x)*4;
-    for(let c=0;c<3;c++){
-      const a=t[(Math.max(0,y-1)*w+x)*3+c],b=t[(y*w+x)*3+c],e=t[(Math.min(h-1,y+1)*w+x)*3+c];
-      d[i+c]=Math.round((a+2*b+e)/4);
-    }
-    d[i+3]=255;
-  }
-  return o;
-}
-// прибирає віньєтку/нерівне світло: ділимо на локальне середнє
-function flatten(id,w,h){
-  const R=Math.max(8,Math.round(Math.min(w,h)/6));
-  const out=new ImageData(w,h),s=id.data,o=out.data;
-  const ii=new Float64Array((w+1)*(h+1));
-  for(let c=0;c<3;c++){
-    ii.fill(0); let gsum=0;
-    for(let y=0;y<h;y++){let row=0;
-      for(let x=0;x<w;x++){const v=s[(y*w+x)*4+c];row+=v;gsum+=v;
-        ii[(y+1)*(w+1)+(x+1)]=ii[y*(w+1)+(x+1)]+row;}}
-    const gm=gsum/(w*h)||1;
-    for(let y=0;y<h;y++){
-      const y0=Math.max(0,y-R),y1=Math.min(h-1,y+R);
-      for(let x=0;x<w;x++){
-        const x0=Math.max(0,x-R),x1=Math.min(w-1,x+R);
-        const sum=ii[(y1+1)*(w+1)+(x1+1)]-ii[y0*(w+1)+(x1+1)]-ii[(y1+1)*(w+1)+x0]+ii[y0*(w+1)+x0];
-        const lm=sum/((x1-x0+1)*(y1-y0+1))||1;
-        o[(y*w+x)*4+c]=Math.max(0,Math.min(255,Math.round(s[(y*w+x)*4+c]*gm/lm)));
-      }
-    }
-  }
-  for(let i=0;i<w*h;i++) o[i*4+3]=255;
-  return out;
-}
-function toGray(id,w,h){const s=id.data,g=new Uint8Array(w*h);
-  for(let i=0;i<w*h;i++) g[i]=(77*s[i*4]+150*s[i*4+1]+29*s[i*4+2])>>8; return g;}
-
-// ── КРОК 1: КАНДИДАТИ ЧОТИРИКУТНИКА КОДУ ─────────────────────────
-function bgColor(id,w,h){
-  const d=id.data,R=[],G=[],B=[],S=Math.max(4,Math.round(Math.min(w,h)*0.02));
-  for(let dy=0;dy<S;dy++)for(let dx=0;dx<S;dx++){
-    for(const [x,y] of [[dx,dy],[w-1-dx,dy],[dx,h-1-dy],[w-1-dx,h-1-dy]]){
-      const p=(y*w+x)*4; R.push(d[p]);G.push(d[p+1]);B.push(d[p+2]);
-    }
-  }
-  const med=a=>{a.sort((x,y)=>x-y);return a[a.length>>1];};
-  return [med(R),med(G),med(B)];
-}
-function makeMask(id,w,h,bg,tol){
-  const d=id.data,m=new Uint8Array(w*h);let n=0;
-  const t2=tol*tol;
-  for(let i=0;i<w*h;i++){
-    const dr=d[i*4]-bg[0],dg=d[i*4+1]-bg[1],db=d[i*4+2]-bg[2];
-    if(dr*dr+dg*dg+db*db>t2){m[i]=1;n++;}
-  }
-  return {m,n};
-}
-function erode(m,w,h){
-  const o=new Uint8Array(w*h);
-  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++)
-    if(m[y*w+x]&&m[(y-1)*w+x]&&m[(y+1)*w+x]&&m[y*w+x-1]&&m[y*w+x+1]) o[y*w+x]=1;
-  return o;
-}
-// огрублення + дилатація + найбільша компонента → регіон, у якому шукаємо кути
-function regionOf(m,w,h,dilCells){
-  const CW=160, CH=Math.max(20,Math.round(160*h/w));
-  const occ=new Uint8Array(CW*CH);
-  for(let y=0;y<h;y++){const cy=(y*CH/h)|0;
-    for(let x=0;x<w;x++) if(m[y*w+x]) occ[cy*CW+((x*CW/w)|0)]=1;}
-  // сепарабельна box-дилатація
-  const r=dilCells, t=new Uint8Array(CW*CH), dl=new Uint8Array(CW*CH);
-  for(let y=0;y<CH;y++)for(let x=0;x<CW;x++){let a=0;
-    for(let k=-r;k<=r;k++){const nx=x+k; if(nx>=0&&nx<CW&&occ[y*CW+nx]){a=1;break;}} t[y*CW+x]=a;}
-  for(let y=0;y<CH;y++)for(let x=0;x<CW;x++){let a=0;
-    for(let k=-r;k<=r;k++){const ny=y+k; if(ny>=0&&ny<CH&&t[ny*CW+x]){a=1;break;}} dl[y*CW+x]=a;}
-  const lab=new Int32Array(CW*CH); let cur=0,best=0,bestId=0;
-  const stk=[];
-  for(let s=0;s<CW*CH;s++){
-    if(!dl[s]||lab[s]) continue; cur++; let cnt=0; stk.push(s); lab[s]=cur;
-    while(stk.length){const p=stk.pop();cnt++;const gx=p%CW,gy=(p/CW)|0;
-      for(const [nx,ny] of [[gx-1,gy],[gx+1,gy],[gx,gy-1],[gx,gy+1]]){
-        if(nx<0||ny<0||nx>=CW||ny>=CH) continue; const q=ny*CW+nx;
-        if(dl[q]&&!lab[q]){lab[q]=cur;stk.push(q);}}}
-    if(cnt>best){best=cnt;bestId=cur;}
-  }
-  if(!bestId) return null;
-  return {lab,bestId,CW,CH,frac:best/(CW*CH)};
-}
-function cornersIn(m,w,h,reg,slack){
-  let tlS=1e9,trD=-1e9,brS=-1e9,blD=1e9,cnt=0;
-  const inR=(x,y)=>{const cx=(x*reg.CW/w)|0,cy=(y*reg.CH/h)|0;return reg.lab[cy*reg.CW+cx]===reg.bestId;};
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    if(!m[y*w+x]||!inR(x,y)) continue; cnt++;
-    const s=x+y,d=x-y;
-    if(s<tlS)tlS=s; if(d>trD)trD=d; if(s>brS)brS=s; if(d<blD)blD=d;
-  }
-  if(cnt<40) return null;
-  let a=[0,0,0],b=[0,0,0],c=[0,0,0],e=[0,0,0];
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    if(!m[y*w+x]||!inR(x,y)) continue;
-    const s=x+y,d=x-y;
-    if(s<=tlS+slack){a[0]+=x;a[1]+=y;a[2]++;}
-    if(d>=trD-slack){b[0]+=x;b[1]+=y;b[2]++;}
-    if(s>=brS-slack){c[0]+=x;c[1]+=y;c[2]++;}
-    if(d<=blD+slack){e[0]+=x;e[1]+=y;e[2]++;}
-  }
-  const P=v=>({x:v[0]/v[2],y:v[1]/v[2]});
-  return {tl:P(a),tr:P(b),br:P(c),bl:P(e),px:cnt};
-}
-function quadSpread(q){const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-  return (d(q.tl,q.tr)+d(q.tr,q.br)+d(q.br,q.bl)+d(q.bl,q.tl))/4;}
-function expandQuad(q,e){
-  const cx=(q.tl.x+q.tr.x+q.br.x+q.bl.x)/4, cy=(q.tl.y+q.tr.y+q.br.y+q.bl.y)/4;
-  const P=p=>{const L=Math.hypot(p.x-cx,p.y-cy)||1;return {x:p.x+(p.x-cx)/L*e,y:p.y+(p.y-cy)/L*e};};
-  return {tl:P(q.tl),tr:P(q.tr),br:P(q.br),bl:P(q.bl)};
-}
-
-// ── ГОМОГРАФІЯ ───────────────────────────────────────────────────
-function gauss(A,b){
-  const n=b.length,M=A.map((r,i)=>[...r,b[i]]);
-  for(let c=0;c<n;c++){
-    let mr=c,mv=Math.abs(M[c][c]);
-    for(let r=c+1;r<n;r++) if(Math.abs(M[r][c])>mv){mv=Math.abs(M[r][c]);mr=r;}
-    [M[c],M[mr]]=[M[mr],M[c]]; const pv=M[c][c]; if(Math.abs(pv)<1e-12) return null;
-    for(let r=c+1;r<n;r++){const f=M[r][c]/pv;for(let j=c;j<=n;j++)M[r][j]-=f*M[c][j];}
-  }
-  const x=new Array(n).fill(0);
-  for(let i=n-1;i>=0;i--){x[i]=M[i][n];for(let j=i+1;j<n;j++)x[i]-=M[i][j]*x[j];x[i]/=M[i][i];}
-  return x;
-}
-function homography(s4,d4){
-  const A=[],b=[];
-  for(let i=0;i<4;i++){const sx=s4[i].x,sy=s4[i].y,dx=d4[i].x,dy=d4[i].y;
-    A.push([sx,sy,1,0,0,0,-sx*dx,-sy*dx]); b.push(dx);
-    A.push([0,0,0,sx,sy,1,-sx*dy,-sy*dy]); b.push(dy);}
-  const h=gauss(A,b); if(!h) return null;
-  return [[h[0],h[1],h[2]],[h[3],h[4],h[5]],[h[6],h[7],1]];
-}
-function inv3(M){
-  const [[a,b,c],[d,e,f],[g,h,k]]=M;
-  const dt=a*(e*k-f*h)-b*(d*k-f*g)+c*(d*h-e*g); if(Math.abs(dt)<1e-12) return null;
-  return [[(e*k-f*h)/dt,(c*h-b*k)/dt,(b*f-c*e)/dt],
-          [(f*g-d*k)/dt,(a*k-c*g)/dt,(c*d-a*f)/dt],
-          [(d*h-e*g)/dt,(b*g-a*h)/dt,(a*e-b*d)/dt]];
-}
-function warp(id,w,h,q,S){
-  const H=homography([q.tl,q.tr,q.br,q.bl],[{x:0,y:0},{x:S,y:0},{x:S,y:S},{x:0,y:S}]);
-  if(!H) return null; const Hi=inv3(H); if(!Hi) return null;
-  const out=new ImageData(S,S),s=id.data,o=out.data;
-  for(let dy=0;dy<S;dy++)for(let dx=0;dx<S;dx++){
-    const X=dx+0.5,Y=dy+0.5;
-    const ww=Hi[2][0]*X+Hi[2][1]*Y+Hi[2][2];
-    const sx=(Hi[0][0]*X+Hi[0][1]*Y+Hi[0][2])/ww, sy=(Hi[1][0]*X+Hi[1][1]*Y+Hi[1][2])/ww;
-    const x0=Math.floor(sx),y0=Math.floor(sy),fx=sx-x0,fy=sy-y0,di=(dy*S+dx)*4;
-    const G=(x,y,c)=>(x<0||x>=w||y<0||y>=h)?128:s[(y*w+x)*4+c];
-    for(let c=0;c<3;c++)
-      o[di+c]=Math.round(G(x0,y0,c)*(1-fx)*(1-fy)+G(x0+1,y0,c)*fx*(1-fy)+
-                         G(x0,y0+1,c)*(1-fx)*fy+G(x0+1,y0+1,c)*fx*fy);
-    o[di+3]=255;
-  }
-  return out;
-}
-
-// ── КРОК 2: ЗЕБРА → T ТА ЛІНІЇ СІТКИ ─────────────────────────────
-// Один прохід уздовж краю. Повертає T і субпіксельні позиції переходів.
-function scanLine(a){
-  const L=a.length; let mn=255,mx=0;
-  for(const v of a){if(v<mn)mn=v;if(v>mx)mx=v;}
-  if(mx-mn<45) return null;
-  const thr=(mn+mx)/2;
-  const runs=[]; let cur=a[0]>thr?1:0,len=1;
-  for(let i=1;i<L;i++){const b=a[i]>thr?1:0;
-    if(b===cur) len++; else {runs.push({v:cur,len,at:i});cur=b;len=1;}}
-  runs.push({v:cur,len,at:L});
-  // кути чорні ⇒ починається і закінчується темним, кількість смуг непарна
-  if(runs[0].v!==0||runs[runs.length-1].v!==0) return null;
-  const T=runs.length; if(T<5||T%2===0||T>81) return null;
-  const ls=runs.map(r=>r.len).slice().sort((x,y)=>x-y), med=ls[ls.length>>1];
-  if(med<2) return null;
-  let good=0; for(const r of runs) if(r.len>=med*0.45&&r.len<=med*1.9) good++;
-  if(good/T<0.75) return null;
-  const tr=[];
-  for(let k=0;k<runs.length-1;k++){
-    const i=runs[k].at, v0=a[i-1], v1=a[i];
-    let f=(v0-thr)/((v0-v1)||1e-9); f=Math.max(0,Math.min(1,f));
-    tr.push(i-1+f);
-  }
-  return {T,tr,med,contrast:mx-mn};
-}
-function detectZebra(gray,S,verbose){
-  const row=y=>{const a=new Uint8Array(S);for(let x=0;x<S;x++)a[x]=gray[y*S+x];return a;};
-  const col=x=>{const a=new Uint8Array(S);for(let y=0;y<S;y++)a[y]=gray[y*S+x];return a;};
-  const votes=new Map(); const hits=[]; let lines=0;
-  for(let f=0.006;f<=0.125;f+=0.0035){
-    const p=Math.round(f*S); if(p<1||p>=S/2) continue;
-    const probes=[['top',row(p)],['bottom',row(S-1-p)],['left',col(p)],['right',col(S-1-p)]];
-    for(const [side,arr] of probes){
-      lines++; const r=scanLine(arr); if(!r) continue;
-      votes.set(r.T,(votes.get(r.T)||0)+1);
-      hits.push({side,T:r.T,tr:r.tr,p});
-    }
-  }
-  if(!votes.size) return null;
-  const sorted=[...votes.entries()].sort((a,b)=>b[1]-a[1]);
-  const T=sorted[0][0], nv=sorted[0][1];
-  const good=hits.filter(x=>x.T===T);
-  const bySide=s=>good.filter(x=>x.side===s).length;
-  const conf=nv/Math.max(1,hits.length);
-  if(verbose){
-    Li('голоси T: '+sorted.slice(0,4).map(([t,v])=>'T'+t+'×'+v).join('  '));
-    Li('валідних сканів рамки '+hits.length+' з '+lines+'  ·  за T='+T+' проголосувало '+nv+
-       ' ('+(conf*100).toFixed(0)+'%)');
-    Li('підтримка сторін: ↑'+bySide('top')+' ↓'+bySide('bottom')+' ←'+bySide('left')+' →'+bySide('right'));
-  }
-  const xs=good.filter(x=>x.side==='top'||x.side==='bottom');
-  const ys=good.filter(x=>x.side==='left'||x.side==='right');
-  if(xs.length<2||ys.length<2) return {T,conf,parsed:hits.length,weak:true,
-    X:uniform(S,T),Y:uniform(S,T),sides:{t:bySide('top'),b:bySide('bottom'),l:bySide('left'),r:bySide('right')}};
-  const medAt=(sets,k)=>{const v=sets.map(s=>s.tr[k]).sort((a,b)=>a-b);return v[v.length>>1];};
-  const X=[0],Y=[0];
-  for(let k=0;k<T-1;k++){X.push(medAt(xs,k));Y.push(medAt(ys,k));}
-  X.push(S);Y.push(S);
-  return {T,conf,parsed:hits.length,X,Y,nx:xs.length,ny:ys.length,
-          sides:{t:bySide('top'),b:bySide('bottom'),l:bySide('left'),r:bySide('right')}};
-}
-function uniform(S,T){const a=[];for(let i=0;i<=T;i++)a.push(i*S/T);return a;}
-function gridDeviation(A,S,T){let mx=0;const m=S/T;
-  for(let i=0;i<=T;i++) mx=Math.max(mx,Math.abs(A[i]-i*m)/m); return mx;}
-
-// ── КРОК 3: ВИБІРКА КЛІТИНОК ЗА ЛІНІЯМИ ЗЕБРИ ────────────────────
-function sampleGrid(warped,S,T,X,Y,fromRow,toRow){
-  const d=warped.data,out=[];
-  for(let r=fromRow;r<=toRow;r++)for(let c=fromRow;c<=toRow;c++){
-    const x0=X[c],x1=X[c+1],y0=Y[r],y1=Y[r+1];
-    const cx=(x0+x1)/2, cy=(y0+y1)/2, rad=Math.max(1.2,Math.min(x1-x0,y1-y0)*0.25);
-    const R=[],G=[],B=[],r2=rad*rad;
-    const px0=Math.max(0,Math.floor(cx-rad)),px1=Math.min(S-1,Math.ceil(cx+rad));
-    const py0=Math.max(0,Math.floor(cy-rad)),py1=Math.min(S-1,Math.ceil(cy+rad));
-    for(let py=py0;py<=py1;py++)for(let px=px0;px<=px1;px++){
-      const dx=px-cx+0.5,dy=py-cy+0.5; if(dx*dx+dy*dy>r2) continue;
-      const i=(py*S+px)*4; R.push(d[i]);G.push(d[i+1]);B.push(d[i+2]);
-    }
-    const md=a=>{if(!a.length)return 0;a.sort((x,y)=>x-y);return a[a.length>>1];};
-    out.push({r:md(R),g:md(G),b:md(B),cx,cy,rad,row:r,col:c});
-  }
-  return out;
-}
-
-// ── КРОК 4: КЛАСИФІКАЦІЯ КОЛЬОРУ ─────────────────────────────────
-const PAL_MAIN={name:'насичена',r:[255,0,0],g:[0,255,0],b:[0,0,255]};
-const PAL_GAL ={name:'галерейна',r:[220,50,60],g:[65,195,65],b:[60,70,215]};
-const REFBITS=[[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,1,1],[1,1,1]];
-function refsFor(S){
-  const mix=(r,g,b)=>[0,1,2].map(k=>Math.min(255,(r?S.r[k]:0)+(g?S.g[k]:0)+(b?S.b[k]:0)));
-  return REFBITS.map(c=>({bits:c,col:mix(c[0],c[1],c[2])}));
-}
-function otsu(vals){
-  const hist=new Int32Array(256); for(const v of vals) hist[Math.max(0,Math.min(255,Math.round(v)))]++;
-  const N=vals.length; let sum=0; for(let i=0;i<256;i++) sum+=i*hist[i];
-  let wb=0,sb=0,best=-1,bt=128;
-  for(let t=0;t<256;t++){wb+=hist[t];if(!wb)continue;const wf=N-wb;if(!wf)break;
-    sb+=t*hist[t];const mb=sb/wb,mf=(sum-sb)/wf,v=wb*wf*(mb-mf)*(mb-mf);
-    if(v>best){best=v;bt=t;}}
-  return bt;
-}
-function classifyPalette(cells,n,PAL){
-  const refs=refsFor(PAL); let err=0;
-  const cr=new Uint8Array(n*n),cg=new Uint8Array(n*n),cb=new Uint8Array(n*n),cf=new Float32Array(n*n);
-  for(let i=0;i<n*n;i++){
-    const R=cells[i].r,G=cells[i].g,B=cells[i].b;
-    let bi=0,b1=1e18,b2=1e18;
-    for(let k=0;k<refs.length;k++){
-      const q=refs[k].col,dr=R-q[0],dg=G-q[1],db=B-q[2],d=dr*dr+dg*dg+db*db;
-      if(d<b1){b2=b1;b1=d;bi=k;} else if(d<b2) b2=d;
-    }
-    err+=b1; const t=refs[bi].bits; cr[i]=t[0];cg[i]=t[1];cb[i]=t[2];
-    cf[i]=Math.min(1,(Math.sqrt(b2)-Math.sqrt(b1))/90);
-  }
-  return {name:PAL.name,err:err/(n*n),cr,cg,cb,conf:[cf,cf,cf]};
-}
-function classifyAdaptive(cells,n){
-  const ch=[cells.map(c=>c.r),cells.map(c=>c.g),cells.map(c=>c.b)];
-  const bits=[],conf=[],thrs=[];
-  for(let k=0;k<3;k++){
-    const t=otsu(ch[k]); thrs.push(t);
-    const b=new Uint8Array(n*n),f=new Float32Array(n*n);
-    let sp=1; for(const v of ch[k]) sp=Math.max(sp,Math.abs(v-t));
-    for(let i=0;i<n*n;i++){b[i]=ch[k][i]>t?1:0;f[i]=Math.min(1,Math.abs(ch[k][i]-t)/(sp*0.5+1));}
-    bits.push(b);conf.push(f);
-  }
-  return {name:'адаптивна(Otsu·канал) thr='+thrs.join('/'),err:0,
-          cr:bits[0],cg:bits[1],cb:bits[2],conf};
-}
-function fitPlane(pts){
-  const A=[[0,0,0],[0,0,0],[0,0,0]],b=[0,0,0];
-  for(const p of pts){const r=[1,p.x,p.y];
-    for(let i=0;i<3;i++){for(let j=0;j<3;j++)A[i][j]+=r[i]*r[j]; b[i]+=r[i]*p.v;}}
-  const s=gauss(A.map(r=>r.slice()),b.slice());
-  if(!s||!isFinite(s[0])){const m=pts.reduce((a,p)=>a+p.v,0)/pts.length;return ()=>m;}
-  return (x,y)=>s[0]+s[1]*x+s[2]*y;
-}
-// рамка-зебра = вбудована сіра карта: чорні модулі = 0, світлі = 255
-function calibrateByFrame(ring,T,cells){
-  const lum=o=>(o.r+o.g+o.b)/3, bd=[];
-  for(let i=0;i<T;i++) bd.push(ring[i],ring[(T-1)*T+i],ring[i*T],ring[i*T+T-1]);
-  const ls=bd.map(lum).sort((a,b)=>a-b), thr=(ls[0]+ls[ls.length-1])/2;
-  const dk=bd.filter(o=>lum(o)<thr), lt=bd.filter(o=>lum(o)>=thr);
-  if(dk.length<4||lt.length<4) return null;
-  const D=[],L=[];
-  for(const k of ['r','g','b']){
-    D.push(fitPlane(dk.map(o=>({x:o.cx,y:o.cy,v:o[k]}))));
-    L.push(fitPlane(lt.map(o=>({x:o.cx,y:o.cy,v:o[k]}))));
-  }
-  return cells.map(c=>{
-    const o={cx:c.cx,cy:c.cy,rad:c.rad,row:c.row,col:c.col};
-    ['r','g','b'].forEach((k,i)=>{
-      const d=D[i](c.cx,c.cy), l=L[i](c.cx,c.cy);
-      o[k]=Math.max(0,Math.min(255,255*(c[k]-d)/Math.max(20,l-d)));
-    });
-    return o;
-  });
-}
-function classifyMono(cells,n){
-  const lum=cells.map(c=>(c.r+c.g+c.b)/3), t=otsu(lum);
-  const g=new Uint8Array(n*n),f=new Float32Array(n*n);
-  let sp=1; for(const v of lum) sp=Math.max(sp,Math.abs(v-t));
-  for(let i=0;i<n*n;i++){g[i]=lum[i]>t?1:0;f[i]=Math.min(1,Math.abs(lum[i]-t)/(sp*0.5+1));}
-  return {name:'моно thr='+t,g,conf:f};
-}
-
-// ── КРОК 5: TAINA — СИМЕТРІЯ, ГОЛОСУВАННЯ, ECC ───────────────────
-const _enc=new TextEncoder(), _dec=new TextDecoder('utf-8',{fatal:true});
-function isClean(t){for(const ch of t){const o=ch.codePointAt(0);
-  if(o===0||(o<32&&ch!=='\n'&&ch!=='\t')) return false;} return true;}
-function bytesToText(by){
-  const b=by.slice(); while(b.length&&b[b.length-1]===0) b.pop();
-  if(!b.length) return null;
-  try{const t=_dec.decode(new Uint8Array(b));return isClean(t)?t:null;}catch(e){return null;}
-}
-function textBits(t){const d=_enc.encode(t),b=new Uint8Array(d.length*8);
-  for(let i=0;i<d.length;i++)for(let k=0;k<8;k++)b[i*8+k]=(d[i]>>(7-k))&1; return b;}
-const Rof=n=>(n-1)/2;
-function baseCells(m,n){
-  const c=Rof(n),o=[];
-  if(m==='oct'){for(let i=0;i<=c;i++)for(let j=0;j<=i;j++)o.push([c+i,c+j]);}
-  else if(m==='quad'){for(let i=0;i<=c;i++)for(let j=0;j<=c;j++)o.push([c+i,c+j]);}
-  else{for(let y=0;y<n;y++)for(let i=0;i<=c;i++)o.push([c+i,y]);}
-  return o;
-}
-function mirrors(m,n,x,y){
-  const c=Rof(n),i=x-c,j=y-c;
-  let p;
-  if(m==='oct') p=[[i,j],[j,i],[-i,j],[-j,i],[i,-j],[j,-i],[-i,-j],[-j,-i]];
-  else if(m==='quad') p=[[i,j],[-i,j],[i,-j],[-i,-j]];
-  else p=[[i,j],[-i,j]];
-  const o=[];
-  for(const [a,b] of p){const X=c+a,Y=c+b; if(X>=0&&Y>=0&&X<n&&Y<n) o.push([X,Y]);}
-  return o;
-}
-function fillChannel(t,n,m,markBit){
-  const g=new Uint8Array(n*n),bc=baseCells(m,n);
-  let seq=textBits(t);
-  if(markBit!=null){const s=new Uint8Array(seq.length+1);s[0]=markBit;s.set(seq,1);seq=s;}
-  const lim=Math.min(seq.length,bc.length);
-  for(let i=0;i<lim;i++){const [x,y]=bc[i];
-    for(const [X,Y] of mirrors(m,n,x,y)) if(seq[i]) g[Y*n+X]=1;}
-  return g;
-}
-function agreeAll(g,chk,n){let ok=0;for(let i=0;i<n*n;i++) ok+=(g[i]===chk[i])?1:0; return ok/(n*n);}
-// голосування по дзеркалах: bit + запас надійності (це і є ECC-ресурс)
-function voteBits(g,conf,n,m){
-  const bc=baseCells(m,n),bits=new Uint8Array(bc.length),marg=new Float32Array(bc.length);
-  let flipped=0;
-  for(let i=0;i<bc.length;i++){
-    const [x,y]=bc[i], cl=mirrors(m,n,x,y);
-    let w1=0,w0=0,o=0;
-    for(const [X,Y] of cl){const z=Y*n+X,cv=conf?Math.max(0.05,conf[z]):1;
-      if(g[z]){w1+=cv;o++;}else w0+=cv;}
-    const bit=(w1===w0)?(g[y*n+x]?1:0):(w1>w0?1:0);
-    bits[i]=bit; marg[i]=(w1+w0)?Math.abs(w1-w0)/(w1+w0):0;
-    if(o!==0&&o!==cl.length) flipped++;
-  }
-  return {bits,marg,inconsistent:flipped,base:bc.length};
-}
-function bitsToText(bits,off){
-  const by=[];
-  for(let i=off;i+7<bits.length;i+=8){let v=0;for(let k=0;k<8;k++)v=(v<<1)|bits[i+k];by.push(v);}
-  return bytesToText(by);
-}
-// декод одного каналу з виправленням найненадійніших бітів
-function decodeChannel(g,conf,n,m,markBit){
-  const off=(markBit==null)?0:1;
-  const V=voteBits(g,conf,n,m);
-  const bits=V.bits;
-  const check=arr=>{
-    const t=bitsToText(arr,off);
-    if(t===null) return null;
-    return {text:t,agree:agreeAll(g,fillChannel(t,n,m,markBit),n)};
-  };
-  let best=check(bits); let flips=0;
-  if(best&&best.agree>=0.9995) return {...best,flips:0,stat:V};
-  // ECC: перебираємо найслабші біти
-  const order=Array.from(bits.keys()).sort((a,b)=>V.marg[a]-V.marg[b]).slice(0,14);
-  const test=idxs=>{
-    const a=bits.slice(); for(const i of idxs) a[i]^=1;
-    const r=check(a); if(r&&(!best||r.agree>best.agree+1e-9)){best=r;flips=idxs.length;}
-  };
-  for(const i of order) test([i]);
-  if(!best||best.agree<0.995)
-    for(let a=0;a<order.length;a++)for(let b=a+1;b<order.length;b++) test([order[a],order[b]]);
-  return best?{...best,flips,stat:V}:null;
-}
-function rot90(a,n){const o=new (a.constructor)(n*n);
-  for(let y=0;y<n;y++)for(let x=0;x<n;x++) o[x*n+(n-1-y)]=a[y*n+x]; return o;}
-function markCell(g,n,m){const [x,y]=baseCells(m,n)[0];return g[y*n+x]?1:0;}
-
-const MODES=['oct','quad','half'];
-
-function decodeSet(chans,n,label){
-  // chans: [{g,conf,name}] 1 або 3
-  let best=null;
-  for(const m of MODES){
-    const outs=chans.map((c,ci)=>{
-      const variants=[];
-      if(ci===0&&chans.length===3){
-        const mk=markCell(c.g,n,m);
-        variants.push(decodeChannel(c.g,c.conf,n,m,mk));
-        variants.push(decodeChannel(c.g,c.conf,n,m,null));
-      } else variants.push(decodeChannel(c.g,c.conf,n,m,null));
-      const ok=variants.filter(Boolean).sort((a,b)=>b.agree-a.agree);
-      return ok.length?ok[0]:null;
-    });
-    const got=outs.filter(o=>o&&o.text!==null);
-    if(!got.length) continue;
-    const score=got.length*1000+got.reduce((a,o)=>a+o.agree,0)*100+
-                got.reduce((a,o)=>a+o.text.length,0);
-    if(!best||score>best.score) best={score,mode:m,outs,got,label};
-  }
-  return best;
-}
-
-// ── МАЛЮВАННЯ ────────────────────────────────────────────────────
-const cnv=document.getElementById('cnv');
-let VIEW={src:null,warp:null,mode:'src'};
-document.querySelectorAll('.view').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('.view').forEach(x=>x.classList.remove('on','sel'));
-  b.classList.add('on','sel'); VIEW.mode=b.dataset.v; paint();
-});
-function paint(){
-  const v=VIEW[VIEW.mode]||VIEW.src||VIEW.warp; if(!v) return;
-  cnv.width=v.w;cnv.height=v.h;
-  const g=cnv.getContext('2d'); g.putImageData(v.img,0,0); if(v.draw) v.draw(g);
-}
-function drawQuad(g,q,color){
-  g.lineWidth=Math.max(1.5,cnv.width/380); g.strokeStyle=color;
-  g.beginPath(); g.moveTo(q.tl.x,q.tl.y); g.lineTo(q.tr.x,q.tr.y);
-  g.lineTo(q.br.x,q.br.y); g.lineTo(q.bl.x,q.bl.y); g.closePath(); g.stroke();
-  const R=Math.max(3,cnv.width/150);
-  const names=[['tl','#ffd23f'],['tr','#ffd23f'],['br','#ffd23f'],['bl','#ffd23f']];
-  names.forEach(([k,c])=>{g.fillStyle=c;g.beginPath();g.arc(q[k].x,q[k].y,R,0,7);g.fill();});
-}
-
-// ── ГОЛОВНИЙ ПРОХІД ──────────────────────────────────────────────
-function run(img,orient){
-  clrLog(); setSt('обробка…','i');
-  const t0=performance.now();
-
-  Lh('1. ВХІД');
-  const {idata,w,h}=toImageData(img,orient);
-  Li('розмір '+w+'×'+h);
-  const soft=blur3(idata,w,h);
-  const flat=flatten(soft,w,h);
-  const SRC=[{n:'оригінал',im:soft,bg:bgColor(soft,w,h)},
-             {n:'вирівняне світло',im:flat,bg:bgColor(flat,w,h)}];
-  SRC.forEach(s=>Li('фон «'+s.n+'»: rgb('+s.bg.join(',')+')'));
-  VIEW.src={img:idata,w,h,draw:null};
-  VIEW.warp=null; paint();
-
-  Lh('2. ПОШУК РАМКИ');
-  const cands=[]; const seen=new Set();
-  for(const S0 of SRC){
-    for(const tol of [22,32,45,62,85]){
-      const {m,n}=makeMask(S0.im,w,h,S0.bg,tol);
-      const frac=n/(w*h);
-      if(n<200||frac>0.97) continue;
-      const em=erode(m,w,h);
-      for(const dil of [3,10]){
-        const reg=regionOf(em,w,h,dil); if(!reg) continue;
-        const q=cornersIn(em,w,h,reg,Math.max(6,Math.round(Math.min(w,h)*0.012)));
-        if(!q) continue;
-        const sp=quadSpread(q); if(sp<Math.min(w,h)*0.08) continue;
-        const key=[q.tl,q.tr,q.br,q.bl].map(p=>Math.round(p.x/4)+':'+Math.round(p.y/4)).join('|');
-        if(seen.has(key)) continue; seen.add(key);
-        cands.push({q,tol,dil,src:S0.n});
-      }
-    }
-  }
-  if(!cands.length){Le('жодного кандидата рамки');setSt('× рамку не знайдено','e');return;}
-  Li('кандидатів: '+cands.length);
-
-  // швидка перевірка кожного кандидата зеброю
-  const PRE=460;
-  let scored=[];
-  for(const c of cands){
-    for(const e of [0,2,4]){
-      const q=expandQuad(c.q,e);
-      let z=null;
-      for(const S0 of SRC){
-        const wp=warp(S0.im,w,h,q,PRE); if(!wp) continue;
-        const zz=detectZebra(toGray(wp,PRE,PRE),PRE,false); if(!zz) continue;
-        const sd=zz.sides?Object.values(zz.sides).filter(v=>v>0).length:0;
-        if(!z||sd*10+zz.conf>z._s) {z=zz; z._s=sd*10+zz.conf;}
-      }
-      if(!z) continue;
-      const sides=z.sides?Object.values(z.sides).filter(v=>v>0).length:0;
-      scored.push({q,e,tol:c.tol,dil:c.dil,src:c.src,T:z.T,conf:z.conf,sides,weak:!!z.weak,
-                   parsed:z.parsed||0,
-                   score:sides*10+z.conf*10+Math.min(z.parsed||0,30)/3+(z.weak?0:3)});
-    }
-  }
-  scored.sort((a,b)=>b.score-a.score);
-  for(const s of scored.slice(0,5))
-    Ld('['+s.src+'] tol='+s.tol+' dil='+s.dil+' exp='+s.e+' → T='+s.T+
-       ' conf='+(s.conf*100).toFixed(0)+'% сканів='+s.parsed+' сторін='+s.sides+(s.weak?' (слабко)':''));
-  if(!scored.length){
-    Le('зебру не впізнано в жодному кандидаті');
-    VIEW.src.draw=g=>drawQuad(g,cands[0].q,'#a83232'); paint();
-    setSt('× зебру не знайдено','e'); return;
-  }
-  const W=scored[0];
-  Lok('обрано: джерело «'+W.src+'», tol='+W.tol+' dil='+W.dil+' exp='+W.e+'px');
-  Li('кути TL('+W.q.tl.x.toFixed(1)+','+W.q.tl.y.toFixed(1)+')  TR('+W.q.tr.x.toFixed(1)+','+W.q.tr.y.toFixed(1)+')');
-  Li('     BL('+W.q.bl.x.toFixed(1)+','+W.q.bl.y.toFixed(1)+')  BR('+W.q.br.x.toFixed(1)+','+W.q.br.y.toFixed(1)+')');
-  VIEW.src.draw=g=>drawQuad(g,W.q,'#35d27a');
-
-  Lh('3. ВИРІВНЮВАННЯ');
-  const S=900;
-  const warped=warp(soft,w,h,W.q,S);
-  const warpedF=warp(flat,w,h,W.q,S);
-  if(!warped||!warpedF){Le('гомографія не зійшлася');setSt('× warp failed','e');return;}
-  Lok('warp → '+S+'×'+S+' (кольоровий + вирівняний по світлу)');
-
-  Lh('4. ЗЕБРА → СІТКА');
-  const cand=[['оригінал',warped],['вирівняне світло',warpedF]]
-    .map(([nm,im])=>({nm,z:detectZebra(toGray(im,S,S),S,false)}))
-    .filter(o=>o.z);
-  if(!cand.length){Le('зебру не знайдено на вирівняному кадрі');setSt('× зебра не читається','e');paint();return;}
-  cand.sort((a,b)=>{
-    const sd=o=>o.z.sides?Object.values(o.z.sides).filter(v=>v>0).length:0;
-    return (sd(b)*10+b.z.conf+(b.z.weak?0:1))-(sd(a)*10+a.z.conf+(a.z.weak?0:1));});
-  Li('сканування рамки: джерело «'+cand[0].nm+'»');
-  const Z=detectZebra(toGray(cand[0].nm==='оригінал'?warped:warpedF,S,S),S,true);
-  const T=Z.T, n=T-2;
-  const mod=S/T;
-  Lok('T='+T+' модулів  ·  модуль≈'+mod.toFixed(1)+'px  ·  дані '+n+'×'+n+
-      '  ·  впевненість '+(Z.conf*100).toFixed(0)+'%');
-  if(n<7||n%2===0){Le('n='+n+' — недопустимо (має бути непарним і ≥7)');setSt('× n='+n,'e');paint();return;}
-
-  let X=Z.X,Y=Z.Y;
-  if(Z.weak){
-    Lw('переходи зчитані лише з однієї сторони — сітка рівномірна S/T');
+  if(orient&&orient!==1){
+    src=applyExifRotation(img,orient);
+    Li('  EXIF rotation: '+orient);
   } else {
-    const dx=gridDeviation(X,S,T), dy=gridDeviation(Y,S,T);
-    Li('лінії з зебри: X по '+Z.nx+' сканах, Y по '+Z.ny+'  ·  відхилення від рівномірної: X '+
-       (dx*100).toFixed(1)+'% модуля, Y '+(dy*100).toFixed(1)+'%');
-    if(dx>0.55||dy>0.55){
-      Lw('відхилення завелике — переходи ненадійні, беру рівномірну сітку');
-      X=uniform(S,T);Y=uniform(S,T);
-    } else Lok('сітка побудована по переходах зебри');
+    src=document.createElement('canvas');
+    src.width=img.naturalWidth; src.height=img.naturalHeight;
+    src.getContext('2d').drawImage(img,0,0);
   }
 
-  // контроль: 4 кутові модулі мають бути темними
-  const ring=sampleGrid(warped,S,T,X,Y,0,T-1);
-  const at=(r,c)=>ring[r*T+c];
-  const lum=o=>(o.r+o.g+o.b)/3;
-  const corners=[at(0,0),at(0,T-1),at(T-1,0),at(T-1,T-1)].map(lum);
-  const edgeCells=[];
-  for(let i=0;i<T;i++){edgeCells.push(at(0,i),at(T-1,i),at(i,0),at(i,T-1));}
-  const eL=edgeCells.map(lum).sort((a,b)=>a-b);
-  const eThr=(eL[0]+eL[eL.length-1])/2;
-  const darkOK=corners.filter(v=>v<eThr).length;
-  Li('кутові модулі: '+corners.map(v=>v.toFixed(0)).join(' / ')+'  поріг рамки '+eThr.toFixed(0));
-  if(darkOK===4) Lok('усі 4 кути темні — орієнтація рамки підтверджена');
-  else Lw('темних кутів лише '+darkOK+'/4 — рамка або зріз під сумнівом');
-  // чергування по верхньому краю
-  let alt=0; for(let i=1;i<T;i++) if((lum(at(0,i))<eThr)!==(lum(at(0,i-1))<eThr)) alt++;
-  Li('чергування верхнього краю: '+alt+'/'+(T-1)+(alt===T-1?' — ідеально':' — є збої'));
+  // 2. Resize
+  let w=src.width, h=src.height;
+  if(Math.max(w,h)>maxSide){const s=maxSide/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  c.getContext('2d').drawImage(src,0,0,w,h);
+  const idata=c.getContext('2d').getImageData(0,0,w,h);
+  Li('  Розмір: '+w+'×'+h);
 
-  VIEW.warp={img:warped,w:S,h:S,draw:g=>drawGrid(g,S,T,X,Y,eThr,ring)};
-  paint();
+  // 3. Легкий blur — прибирає муар і піксельний шум монітора
+  const blurred=gaussianBlur(idata,w,h,1);
+  Li('  → Gaussian blur 1px (придушення муару)');
 
-  Lh('5. ВИБІРКА ДАНИХ');
-  const cells=sampleGrid(warped,S,T,X,Y,1,T-2);
-  const med=a=>{const b=a.slice().sort((x,y)=>x-y);return b[b.length>>1];};
+  // 4. Бінаризація по каналах R, G, B окремо (Otsu)
+  //    Кожен канал → монохромне зображення → Otsu поріг → 0 або 255
+  //    Потім збираємо назад в ImageData де R=bin(R), G=bin(G), B=bin(B)
+  const d=blurred.data;
+
+  // Витягуємо канали
+  const chR=new Uint8Array(w*h), chG=new Uint8Array(w*h), chB=new Uint8Array(w*h);
+  for(let i=0;i<w*h;i++){chR[i]=d[i*4];chG[i]=d[i*4+1];chB[i]=d[i*4+2];}
+
+  // Otsu для кожного каналу
+  function otsuCh(ch){
+    const hist=new Int32Array(256);for(const v of ch)hist[v]++;
+    const N=ch.length;let sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];
+    let wb=0,sb=0,best=0,bestT=128;
+    for(let t=0;t<256;t++){wb+=hist[t];if(!wb)continue;const wf=N-wb;if(!wf)break;sb+=t*hist[t];const mb=sb/wb,mf=(sum-sb)/wf,v=wb*wf*(mb-mf)*(mb-mf);if(v>best){best=v;bestT=t;}}
+    return bestT;
+  }
+
+  const tR=otsuCh(chR), tG=otsuCh(chG), tB=otsuCh(chB);
+  Li('  Otsu поріг: R='+tR+' G='+tG+' B='+tB);
+
+  // Бінаризуємо: значення вище порогу → 255, нижче → 0
+  const out=new ImageData(w,h);
+  for(let i=0;i<w*h;i++){
+    out.data[i*4]  =chR[i]>tR?255:0;
+    out.data[i*4+1]=chG[i]>tG?255:0;
+    out.data[i*4+2]=chB[i]>tB?255:0;
+    out.data[i*4+3]=255;
+  }
+
+  Li('  → Бінаризація R/G/B по Otsu завершена');
+  return{idata:out,w,h};
+}
+
+// ════════════════════════════════════════════════════════
+//  ДЕКОДЕР v5.1 — ЗАМОРОЖЕНИЙ, НЕ ЗМІНЮВАТИ
+// ════════════════════════════════════════════════════════
+
+function toGray(idata,w,h){const d=idata.data,g=new Uint8Array(w*h);for(let i=0;i<w*h;i++)g[i]=(77*d[i*4]+150*d[i*4+1]+29*d[i*4+2])>>8;return g;}
+
+function sampleBG(gray,w,h,s=5){
+  const v=[];
+  for(let dy=0;dy<s;dy++)for(let dx=0;dx<s;dx++){v.push(gray[dy*w+dx],gray[dy*w+(w-1-dx)],gray[(h-1-dy)*w+dx],gray[(h-1-dy)*w+(w-1-dx)]);}
+  v.sort((a,b)=>a-b);return v[v.length>>1];
+}
+
+function makeMask(gray,w,h,bg,tol){const m=new Uint8Array(w*h);for(let i=0;i<w*h;i++)m[i]=Math.abs(gray[i]-bg)>tol?1:0;return m;}
+
+function erodeMask(mask,w,h){
+  const out=new Uint8Array(w*h);
+  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++)
+    if(mask[y*w+x]&&mask[(y-1)*w+x]&&mask[(y+1)*w+x]&&mask[y*w+x-1]&&mask[y*w+x+1])out[y*w+x]=1;
+  return out;
+}
+
+function findCorners(mask,w,h,slack=12){
+  let tlS=Infinity,trS=-Infinity,brS=-Infinity,blS=Infinity;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(!mask[y*w+x])continue;const s=x+y,d=x-y;if(s<tlS)tlS=s;if(d>trS)trS=d;if(s>brS)brS=s;if(d<blS)blS=d;}
+  let tlX=0,tlY=0,tlN=0,trX=0,trY=0,trN=0,brX=0,brY=0,brN=0,blX=0,blY=0,blN=0;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    if(!mask[y*w+x])continue;const s=x+y,d=x-y;
+    if(s<=tlS+slack){tlX+=x;tlY+=y;tlN++;}if(d>=trS-slack){trX+=x;trY+=y;trN++;}
+    if(s>=brS-slack){brX+=x;brY+=y;brN++;}if(d<=blS+slack){blX+=x;blY+=y;blN++;}
+  }
+  const avg=(sx,sy,n,dx,dy)=>n?{x:Math.round(sx/n),y:Math.round(sy/n)}:{x:dx,y:dy};
+  return{tl:avg(tlX,tlY,tlN,0,0),tr:avg(trX,trY,trN,w-1,0),br:avg(brX,brY,brN,w-1,h-1),bl:avg(blX,blY,blN,0,h-1)};
+}
+
+function spread(c){const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);return Math.max(d(c.tl,c.tr),d(c.tr,c.br),d(c.br,c.bl),d(c.bl,c.tl));}
+
+function gaussElim(A,b){
+  const n=b.length,M=A.map((r,i)=>[...r,b[i]]);
+  for(let c=0;c<n;c++){let mr=c,mv=Math.abs(M[c][c]);for(let r=c+1;r<n;r++)if(Math.abs(M[r][c])>mv){mv=Math.abs(M[r][c]);mr=r;}[M[c],M[mr]]=[M[mr],M[c]];const pv=M[c][c];if(Math.abs(pv)<1e-12)return null;for(let r=c+1;r<n;r++){const f=M[r][c]/pv;for(let j=c;j<=n;j++)M[r][j]-=f*M[c][j];}}
+  const x=new Array(n).fill(0);for(let i=n-1;i>=0;i--){x[i]=M[i][n];for(let j=i+1;j<n;j++)x[i]-=M[i][j]*x[j];x[i]/=M[i][i];}return x;
+}
+function computeH(s4,d4){const rows=[],rhs=[];for(let i=0;i<4;i++){const sx=s4[i].x,sy=s4[i].y,dx=d4[i].x,dy=d4[i].y;rows.push([sx,sy,1,0,0,0,-sx*dx,-sy*dx]);rhs.push(dx);rows.push([0,0,0,sx,sy,1,-sx*dy,-sy*dy]);rhs.push(dy);}const h=gaussElim(rows,rhs);if(!h)return null;return[[h[0],h[1],h[2]],[h[3],h[4],h[5]],[h[6],h[7],1]];}
+function inv3(M){const[[a,b,c],[d,e,f],[g,h,k]]=M;const dt=a*(e*k-f*h)-b*(d*k-f*g)+c*(d*h-e*g);if(Math.abs(dt)<1e-12)return null;return[[(e*k-f*h)/dt,(c*h-b*k)/dt,(b*f-c*e)/dt],[(f*g-d*k)/dt,(a*k-c*g)/dt,(c*d-a*f)/dt],[(d*h-e*g)/dt,(b*g-a*h)/dt,(a*e-b*d)/dt]];}
+function applyH(H,x,y){const w=H[2][0]*x+H[2][1]*y+H[2][2];return{x:(H[0][0]*x+H[0][1]*y+H[0][2])/w,y:(H[1][0]*x+H[1][1]*y+H[1][2])/w};}
+
+function warpPerspective(idata,sw,sh,corners,S){
+  const s4=[corners.tl,corners.tr,corners.br,corners.bl];
+  const d4=[{x:0,y:0},{x:S-1,y:0},{x:S-1,y:S-1},{x:0,y:S-1}];
+  const H=computeH(s4,d4);if(!H)return null;
+  const Hi=inv3(H);if(!Hi)return null;
+  const out=new ImageData(S,S),sd=idata.data,od=out.data;
+  for(let dy=0;dy<S;dy++)for(let dx=0;dx<S;dx++){
+    const p=applyH(Hi,dx,dy),x0=p.x|0,y0=p.y|0,fx=p.x-x0,fy=p.y-y0;
+    const di=(dy*S+dx)*4;
+    const get=(sx,sy,ch)=>(sx<0||sx>=sw||sy<0||sy>=sh)?128:sd[(sy*sw+sx)*4+ch];
+    for(let ch=0;ch<3;ch++)od[di+ch]=Math.round(get(x0,y0,ch)*(1-fx)*(1-fy)+get(x0+1,y0,ch)*fx*(1-fy)+get(x0,y0+1,ch)*(1-fx)*fy+get(x0+1,y0+1,ch)*fx*fy);
+    od[di+3]=255;
+  }
+  return out;
+}
+
+// verifyZebra — ТОЧНО як v5.1
+function verifyZebra(wGray,S,minContrast){
+  function scanLine(arr){
+    const n=arr.length;let mn=255,mx=0;for(const v of arr){if(v<mn)mn=v;if(v>mx)mx=v;}
+    if(mx-mn<minContrast)return null;
+    const thr=(mn+mx)>>1,runs=[];let cur=arr[0]>thr?1:0,len=1;
+    for(let i=1;i<n;i++){const b=arr[i]>thr?1:0;if(b===cur)len++;else{runs.push({v:cur,len});cur=b;len=1;}}
+    runs.push({v:cur,len});
+    if(runs.length<3)return null;
+    const allLens=runs.map(r=>r.len).sort((a,b)=>a-b);
+    const med=allLens[allLens.length>>1];
+    if(med<2)return null;
+    const valid=runs.filter(r=>r.len>=med*0.4&&r.len<=med*2.4);
+    if(valid.length<5)return null;
+    let T=valid.length;
+    if(T%2===0){if(valid[0].v===1||valid[T-1].v===1)T+=1;else return null;}
+    if(T<5)return null;
+    return{T,modSize:S/T};
+  }
+  // ТОЧНО як v5.1: probeOffsets=[2,5,10,15,20,30]
+  const probeOffsets=[2,5,10,15,20,30];
+  const votes=new Map();let total=0;
+  for(const off of probeOffsets){
+    if(off>=S/2)continue;
+    for(const pos of[off,S-1-off]){
+      const row=new Uint8Array(S);for(let x=0;x<S;x++)row[x]=wGray[pos*S+x];
+      const rh=scanLine(row);if(rh)votes.set(rh.T,(votes.get(rh.T)||0)+1);total++;
+      const col=new Uint8Array(S);for(let y=0;y<S;y++)col[y]=wGray[y*S+pos];
+      const rv=scanLine(col);if(rv)votes.set(rv.T,(votes.get(rv.T)||0)+1);total++;
+    }
+  }
+  if(!votes.size)return null;
+  const sorted=[...votes.entries()].sort((a,b)=>b[1]-a[1]);
+  const vStr=sorted.slice(0,5).map(([t,v])=>`T${t}:${v}`).join(' ');
+  const[bestT,bestV]=sorted[0];
+  return{T:bestT,modSize:S/bestT,confidence:bestV/total,voteStr:vStr};
+}
+
+function sampleCircles(warped,S,T,modSize){
+  const d=warped.data,circleR=modSize*0.28,r2=circleR*circleR,cells=[];
+  for(let row=1;row<T-1;row++)for(let col=1;col<T-1;col++){
+    const cx=col*modSize+modSize/2,cy=row*modSize+modSize/2;
+    let sR=0,sG=0,sB=0,cnt=0;
+    const x0=Math.max(0,Math.floor(cx-circleR)),x1=Math.min(S-1,Math.ceil(cx+circleR));
+    const y0=Math.max(0,Math.floor(cy-circleR)),y1=Math.min(S-1,Math.ceil(cy+circleR));
+    for(let py=y0;py<=y1;py++)for(let px=x0;px<=x1;px++){
+      const dx=px-cx,dy=py-cy;if(dx*dx+dy*dy>r2)continue;
+      const idx=(py*S+px)*4;sR+=d[idx];sG+=d[idx+1];sB+=d[idx+2];cnt++;
+    }
+    cells.push(cnt?{r:sR/cnt,g:sG/cnt,b:sB/cnt,row,col}:{r:0,g:0,b:0,row,col});
+  }
+  return{cells,circleR};
+}
+
+// TAINA decoder — ТОЧНО як v5.1
+const RGB_MAIN={r:[255,0,0],g:[0,255,0],b:[0,0,255]};
+const RGB_GAL={r:[220,50,60],g:[65,195,65],b:[60,70,215]};
+const REFBITS=[[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,1,1],[1,1,1]];
+const _enc=new TextEncoder(),_dec=new TextDecoder('utf-8',{fatal:true});
+function isClean(t){for(const ch of t){const o=ch.codePointAt(0);if(o===0||o<32&&ch!=='\n'&&ch!=='\t')return false;}return true;}
+function bytesToText(by){by=by.slice();while(by.length&&by[by.length-1]===0)by.pop();if(!by.length)return null;try{const t=_dec.decode(new Uint8Array(by));return isClean(t)?t:null;}catch{return null;}}
+function textBits(t){const d=_enc.encode(t),b=new Uint8Array(d.length*8);for(let i=0;i<d.length;i++)for(let k=0;k<8;k++)b[i*8+k]=(d[i]>>(7-k))&1;return b;}
+function Rof(n){return(n-1)/2;}
+function baseCells(m,n){const c=Rof(n),o=[];if(m==='oct'){for(let i=0;i<=c;i++)for(let j=0;j<=i;j++)o.push([c+i,c+j]);}else if(m==='quad'){for(let i=0;i<=c;i++)for(let j=0;j<=c;j++)o.push([c+i,c+j]);}else{for(let y=0;y<n;y++)for(let i=0;i<=c;i++)o.push([c+i,y]);}return o;}
+function mirrors(m,n,x,y){const c=Rof(n),i=x-c,j=y-c;let p;if(m==='oct')p=[[i,j],[j,i],[-i,j],[-j,i],[i,-j],[j,-i],[-i,-j],[-j,-i]];else if(m==='quad')p=[[i,j],[-i,j],[i,-j],[-i,-j]];else p=[[i,j],[-i,j]];const o=[];for(const[a,b]of p){const X=c+a,Y=c+b;if(X>=0&&Y>=0&&X<n&&Y<n)o.push([X,Y]);}return o;}
+function fillChannel(t,n,m,markBit){const g=new Uint8Array(n*n),bc=baseCells(m,n);let seq=textBits(t);if(markBit!=null){const s2=new Uint8Array(seq.length+1);s2[0]=markBit;s2.set(seq,1);seq=s2;}const lim=Math.min(seq.length,bc.length);for(let i=0;i<lim;i++){const[x,y]=bc[i];for(const[X,Y]of mirrors(m,n,x,y))if(seq[i])g[Y*n+X]=1;}return g;}
+function markCell(g,n,m){const[x,y]=baseCells(m,n)[0];return g[y*n+x]?1:0;}
+function agree(g,chk,n){let ok=0;for(let z=0;z<n*n;z++)ok+=((chk[z]?1:0)===g[z])?1:0;return ok/(n*n);}
+function decodeVoted(g,n,m,off,conf){const bc=baseCells(m,n),by=[];for(let i=off||0;i+7<bc.length;i+=8){let v=0;for(let b=0;b<8;b++){const[x,y]=bc[i+b],cells=mirrors(m,n,x,y);let bit;if(conf){let w1=0,w0=0;for(const[X,Y]of cells){const cv=conf[Y*n+X];if(cv<0.15)continue;if(g[Y*n+X])w1+=cv;else w0+=cv;}bit=(w1===0&&w0===0)?g[y*n+x]?1:0:w1>w0?1:0;}else{let ones=0;for(const[X,Y]of cells)ones+=g[Y*n+X]?1:0;const cnt=cells.length;bit=ones*2>cnt?1:ones*2<cnt?0:g[y*n+x]?1:0;}v=(v<<1)|bit;}by.push(v);}return{text:bytesToText(by),bytes:by};}
+function refsFor(S){const mix=(r,g,b)=>[Math.min(255,(r?S.r[0]:0)+(g?S.g[0]:0)+(b?S.b[0]:0)),Math.min(255,(r?S.r[1]:0)+(g?S.g[1]:0)+(b?S.b[1]:0)),Math.min(255,(r?S.r[2]:0)+(g?S.g[2]:0)+(b?S.b[2]:0))];return REFBITS.map(c=>({bits:c,col:mix(c[0],c[1],c[2])}));}
+function classifyCells(cells,n){const pals=[['насичена',RGB_MAIN],['галерейна',RGB_GAL]];let best=null;for(const[name,S]of pals){const refs=refsFor(S);let err=0;const cr=new Uint8Array(n*n),cg=new Uint8Array(n*n),cb=new Uint8Array(n*n);for(let i=0;i<n*n;i++){const[R,G,B]=[cells[i].r,cells[i].g,cells[i].b];let bi=0,bd=1e9;for(let k=0;k<refs.length;k++){const q=refs[k].col,dr=R-q[0],dg=G-q[1],db=B-q[2],dd=dr*dr+dg*dg+db*db;if(dd<bd){bd=dd;bi=k;}}err+=bd;const t=refs[bi].bits;cr[i]=t[0];cg[i]=t[1];cb[i]=t[2];}if(!best||err<best.err)best={name,err,cr,cg,cb};}return best;}
+
+function decodeCircles(circles,T){
+  const cells=circles.cells,n=T-2;
+  if(n<7||n%2===0){Lw('n='+n+' — замалий або парний');return null;}
+  const lumas=cells.map(c=>(c.r+c.g+c.b)/3);
+  const lumaMin=Math.min(...lumas),lumaMax=Math.max(...lumas),autoThr=(lumaMin+lumaMax)/2;
+  const gl=new Uint8Array(n*n),confM=new Float32Array(n*n);
+  cells.forEach((c,i)=>{const L=(c.r+c.g+c.b)/3;gl[i]=L>autoThr?1:0;confM[i]=Math.min(1,Math.abs(L-autoThr)/(autoThr/2+1));});
   const sats=cells.map(c=>Math.max(c.r,c.g,c.b)-Math.min(c.r,c.g,c.b));
-  const lums=cells.map(lum);
-  const medSat=med(sats), colored=sats.filter(s=>s>60).length;
-  Li(cells.length+' клітинок  ·  радіус проби '+cells[0].rad.toFixed(1)+'px');
-  Li('яскравість min/med/max: '+Math.min(...lums).toFixed(0)+' / '+med(lums).toFixed(0)+' / '+Math.max(...lums).toFixed(0));
-  Li('насиченість med='+medSat.toFixed(0)+'  кольорових клітин '+colored);
-  const spread=Math.max(...lums)-Math.min(...lums);
-  if(spread<25&&medSat<20){
-    Lw('зона даних однорідна (розкид яскравості '+spread.toFixed(0)+') — усередині рамки немає коду');
-    setSt('рамка знайдена: T='+T+', даних немає','w');
-    buildRGB(warped,S,T,X,Y,cells,null); return;
-  }
-  const isColor=medSat>25||colored>=Math.max(3,n*0.15);
-  Lok(isColor?'режим: КОЛІР (3 канали)':'режим: МОНО (1 канал)');
-
-  Lh('6. ДЕКОДУВАННЯ');
-  const cal=calibrateByFrame(ring,T,cells);
-  if(cal) Li('колір відкалібровано по рамці (чорні/світлі модулі як опорні рівні)');
-  const variants=[];
-  if(isColor){
-    const grp=[];
-    for(const P of [PAL_GAL,PAL_MAIN]){
-      const c=classifyPalette(cells,n,P);
-      grp.push({label:'палітра '+c.name+' (похибка '+Math.sqrt(c.err).toFixed(0)+')',cls:c,three:true,err:c.err});
+  const medSat=[...sats].sort((a,b)=>a-b)[sats.length>>1];
+  const coloredCnt=sats.filter(s=>s>60).length;
+  const isColored=medSat>25||coloredCnt>=Math.max(3,n*0.15);
+  Li('  n='+n+'  поріг='+autoThr.toFixed(0)+'  '+(isColored?'КОЛІР':'МОНО'));
+  const modes=['oct','quad','half'];
+  if(!isColored){
+    Lh('7. ДЕКОД МОНО');let best=null;
+    for(const m of modes){const v=decodeVoted(gl,n,m,0,confM);if(v.text!==null){const a=agree(gl,fillChannel(v.text,n,m),n);Lok('['+m+'] "'+v.text+'"  agree='+a.toFixed(3));if(!best||a>best.a)best={v,a,m};}else Li('  ['+m+'] null');}
+    return best?{type:'МОНО·'+best.m,text:best.v.text}:{type:'МОНО',text:null};
+  } else {
+    Lh('7. ДЕКОД КОЛІР');const cls=classifyCells(cells,n);Li('  палітра: '+cls.name);
+    const cR=new Float32Array(n*n),cG=new Float32Array(n*n),cB=new Float32Array(n*n);
+    cells.forEach((c,i)=>{cR[i]=Math.min(1,Math.abs(c.r-128)/90);cG[i]=Math.min(1,Math.abs(c.g-128)/90);cB[i]=Math.min(1,Math.abs(c.b-128)/90);});
+    let best=null;
+    for(const m of modes){
+      const rMark=markCell(cls.cr,n,m);
+      let vr=decodeVoted(cls.cr,n,m,rMark?1:0,cR);if(rMark&&vr.text===null)vr=decodeVoted(cls.cr,n,m,0,cR);
+      const vg=decodeVoted(cls.cg,n,m,0,cG),vb=decodeVoted(cls.cb,n,m,0,cB);
+      const nn=[vr.text,vg.text,vb.text].filter(t=>t!==null);
+      Li('  ['+m+'] R:'+(vr.text!=null?'"'+vr.text+'"':'null')+'  G:'+(vg.text!=null?'"'+vg.text+'"':'null')+'  B:'+(vb.text!=null?'"'+vb.text+'"':'null'));
+      if(!nn.length)continue;
+      const sc=nn.length*1000+nn.reduce((a,t)=>a+t.length,0);
+      if(!best||sc>best.sc)best={vr,vg,vb,nn,sc,m,rMark};
     }
-    grp.sort((a,b)=>a.err-b.err); variants.push(...grp);
-    if(cal){
-      const g2=[];
-      for(const P of [PAL_GAL,PAL_MAIN]){
-        const c=classifyPalette(cal,n,P);
-        g2.push({label:'палітра '+c.name+' + калібр. рамкою (похибка '+Math.sqrt(c.err).toFixed(0)+')',cls:c,three:true,err:c.err});
-      }
-      g2.sort((a,b)=>a.err-b.err); variants.push(...g2);
-    }
-    const ad=classifyAdaptive(cells,n);
-    variants.push({label:ad.name,cls:ad,three:true});
-    if(cal){const ad2=classifyAdaptive(cal,n);
-      variants.push({label:ad2.name+' + калібр.',cls:ad2,three:true});}
+    if(!best)return{type:'КОЛІР·'+cls.name,text:null};
+    const parts=[best.vr.text,best.vg.text,best.vb.text].filter(t=>t!==null);
+    const text=best.rMark?(parts.every(t=>t===parts[0])?parts[0]:parts.join('')):parts.join(' · ');
+    Lok('['+best.m+'] "'+text+'"');return{type:'КОЛІР·'+best.m,text};
   }
-  const mono=classifyMono(cells,n);
-  variants.push({label:mono.name,cls:{cr:mono.g,conf:[mono.conf]},three:false});
-  if(cal){const m2=classifyMono(cal,n);
-    variants.push({label:m2.name+' + калібр.',cls:{cr:m2.g,conf:[m2.conf]},three:false});}
+}
 
-  let RESULT=null;
-  outer:
-  for(let rot=0;rot<4;rot++){
-    for(const v of variants){
-      let chans;
-      if(v.three) chans=[{g:v.cls.cr,conf:v.cls.conf[0]},{g:v.cls.cg,conf:v.cls.conf[1]},{g:v.cls.cb,conf:v.cls.conf[2]}];
-      else chans=[{g:v.cls.cr,conf:v.cls.conf[0]}];
-      if(rot) chans=chans.map(c=>({g:rotN(c.g,n,rot),conf:rotN(c.conf,n,rot)}));
-      const r=decodeSet(chans,n,v.label);
-      if(rot===0) logVariant(v.label,r,n);
-      if(r&&r.got.length&&r.got.every(o=>o.agree>=0.97)){
-        RESULT={...r,rot,variant:v}; break outer;
-      }
-      if(r&&(!RESULT||r.score>RESULT.score)) RESULT={...r,rot,variant:v};
-    }
-    if(RESULT&&RESULT.got&&RESULT.got.length&&RESULT.got.every(o=>o.agree>=0.97)) break;
-    if(rot===0) Lw('чистого збігу немає — пробую повороти 90°/180°/270°');
+// ── v5.1 PIPELINE (маска + кути — точно як оригінал) ──
+function findFrame(idata,w,h){
+  const gray=toGray(idata,w,h);
+  const bg=sampleBG(gray,w,h,5);
+  Li('BG luma: '+bg);
+  const tols=[20,30,42,55,70,90];
+  let bestCorners=null,bestSpread=0,bestTol=0;
+  for(const tol of tols){
+    const rm=makeMask(gray,w,h,bg,tol);
+    const em=erodeMask(rm,w,h);
+    const fgN=em.reduce((s,v)=>s+v,0);
+    if(fgN<50){Li('  tol='+tol+' FG='+fgN+' — пропуск');continue;}
+    const c=findCorners(em,w,h,15);
+    const sp=spread(c);
+    Li('  tol='+tol+'  FG='+fgN+'  spread='+Math.round(sp)+'px');
+    if(sp>bestSpread){bestSpread=sp;bestCorners=c;bestTol=tol;}
   }
+  Li('Обрано tol='+bestTol+'  spread='+Math.round(bestSpread)+'px');
 
-  Lh('7. РЕЗУЛЬТАТ');
-  if(!RESULT||!RESULT.got.length){
-    Le('жоден канал не дав валідного UTF-8');
-    setSt('⚠ сітка побудована, декод порожній','w');
-    buildRGB(warped,S,T,X,Y,cells,null);
+  // variance-scan fallback — точно як v5.1
+  if(!bestCorners||bestSpread<30){
+    Li('Маска не спрацювала — variance-scan');
+    const topRows=[],leftCols=[];
+    for(let y=0;y<h;y++){let sum=0,sum2=0;for(let x=0;x<w;x++){const v=gray[y*w+x];sum+=v;sum2+=v*v;}const avg=sum/w,std=Math.sqrt(sum2/w-avg*avg);if(std>50)topRows.push(y);}
+    for(let x=0;x<w;x++){let sum=0,sum2=0;for(let y=0;y<h;y++){const v=gray[y*w+x];sum+=v;sum2+=v*v;}const avg=sum/h,std=Math.sqrt(sum2/h-avg*avg);if(std>50)leftCols.push(x);}
+    topRows.sort((a,b)=>a-b);leftCols.sort((a,b)=>a-b);
+    if(topRows.length>0&&leftCols.length>0){
+      const vc={tl:{x:leftCols[0],y:topRows[0]},tr:{x:leftCols[leftCols.length-1],y:topRows[0]},br:{x:leftCols[leftCols.length-1],y:topRows[topRows.length-1]},bl:{x:leftCols[0],y:topRows[topRows.length-1]}};
+      const vsp=spread(vc);
+      Li('Variance: spread='+Math.round(vsp));
+      if(vsp>bestSpread){bestCorners=vc;bestSpread=vsp;}
+    }
+  }
+  return{corners:bestCorners,spread:bestSpread};
+}
+
+// ── DRAW ──
+const mainCnv=document.getElementById('cnv');
+
+function drawResult(warped,S,zebra,idata,w,h,corners){
+  if(warped&&zebra){
+    mainCnv.width=S;mainCnv.height=S;
+    const ctx=mainCnv.getContext('2d');
+    ctx.putImageData(warped,0,0);
+    const{T,modSize}=zebra;
+    ctx.strokeStyle='rgba(40,120,200,0.18)';ctx.lineWidth=0.5;
+    for(let i=0;i<=T;i++){const p=i*modSize;ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,S);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(S,p);ctx.stroke();}
+    for(let i=0;i<T;i++){
+      ctx.fillStyle=(i%2===0)?'rgba(255,80,80,0.18)':'rgba(80,180,255,0.10)';
+      ctx.fillRect(i*modSize,0,modSize,modSize);ctx.fillRect(i*modSize,S-modSize,modSize,modSize);
+      if(i>0&&i<T-1){ctx.fillRect(0,i*modSize,modSize,modSize);ctx.fillRect(S-modSize,i*modSize,modSize,modSize);}
+    }
+    ctx.fillStyle='rgba(255,220,50,0.45)';
+    [[0,0],[S-modSize,0],[S-modSize,S-modSize],[0,S-modSize]].forEach(([x,y])=>ctx.fillRect(x,y,modSize,modSize));
+    ctx.strokeStyle='rgba(80,235,120,0.55)';ctx.lineWidth=1.5;
+    ctx.strokeRect(modSize,modSize,(T-2)*modSize,(T-2)*modSize);
+    const cr=modSize*0.28;ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=Math.max(0.8,modSize*0.06);
+    for(let row=1;row<T-1;row++)for(let col=1;col<T-1;col++){ctx.beginPath();ctx.arc(col*modSize+modSize/2,row*modSize+modSize/2,cr,0,Math.PI*2);ctx.stroke();}
+  } else if(idata){
+    mainCnv.width=w;mainCnv.height=h;
+    const ctx=mainCnv.getContext('2d');ctx.putImageData(idata,0,0);
+    if(corners){
+      ctx.strokeStyle='#eb5555';ctx.lineWidth=2;
+      const c=corners;ctx.beginPath();ctx.moveTo(c.tl.x,c.tl.y);ctx.lineTo(c.tr.x,c.tr.y);ctx.lineTo(c.br.x,c.br.y);ctx.lineTo(c.bl.x,c.bl.y);ctx.closePath();ctx.stroke();
+      ctx.fillStyle='#eb5555';[c.tl,c.tr,c.br,c.bl].forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,5,0,Math.PI*2);ctx.fill();});
+    }
+  }
+}
+
+function buildRGBPanel(warped,S,T,modSize,circles){
+  const grid=document.getElementById('rgb-grid');grid.innerHTML='';
+  const labels=['Warped','R','G','B'],colors=[[255,50,50],[50,220,50],[50,100,255]];
+  const canvases=labels.map(lbl=>{const tile=document.createElement('div');tile.className='rgb-tile';const c=document.createElement('canvas');c.width=S;c.height=S;const l=document.createElement('div');l.className='rgb-lbl';l.textContent=lbl;tile.appendChild(c);tile.appendChild(l);grid.appendChild(tile);return c;});
+  canvases[0].getContext('2d').putImageData(warped,0,0);
+  for(let ci=0;ci<3;ci++){
+    const c=canvases[ci+1],ctx=c.getContext('2d');
+    ctx.fillStyle='#080808';ctx.fillRect(0,0,S,S);
+    ctx.strokeStyle='rgba(40,40,60,0.5)';ctx.lineWidth=0.5;
+    for(let i=0;i<=T;i++){const p=i*modSize;ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,S);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(S,p);ctx.stroke();}
+    const cr=modSize*0.28;const[cr_,cg_,cb_]=colors[ci];
+    circles.cells.forEach(cell=>{
+      const cx=cell.col*modSize+modSize/2,cy=cell.row*modSize+modSize/2;
+      const val=ci===0?cell.r:ci===1?cell.g:cell.b;
+      ctx.fillStyle='rgba('+cr_+','+cg_+','+cb_+','+(val/255).toFixed(2)+')';
+      ctx.beginPath();ctx.arc(cx,cy,cr,0,Math.PI*2);ctx.fill();
+      if(modSize>20){ctx.fillStyle='rgba(255,255,255,0.55)';ctx.font=Math.max(6,modSize*0.22)+'px monospace';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(Math.round(val),cx,cy);}
+    });
+  }
+}
+
+// ── MAIN RUN ──
+function run(idata,w,h){
+  // Декодер v5.1 — незмінний
+  Lh('1. ПОШУК РАМКИ');
+  const{corners,spread:sp}=findFrame(idata,w,h);
+  if(!corners||sp<20){
+    Le('Рамку не знайдено');
+    drawResult(null,null,null,idata,w,h,corners);
+    setSt('✗ рамку не знайдено',false);
     return;
   }
-  if(RESULT.rot) Lw('спрацював поворот на '+(RESULT.rot*90)+'°');
-  Li('варіант: '+RESULT.variant.label+'  ·  симетрія: '+RESULT.mode);
-  const names=RESULT.outs.length===3?['R','G','B']:['L'];
-  const texts=[];
-  RESULT.outs.forEach((o,i)=>{
-    if(!o){Li(names[i]+': —');texts.push(null);return;}
-    texts.push(o.text);
-    Li(names[i]+': "'+o.text+'"   збіг='+(o.agree*100).toFixed(1)+'%'+
-       (o.flips?'   виправлено бітів: '+o.flips:'')+
-       '   дзеркальних конфліктів: '+o.stat.inconsistent+'/'+o.stat.base);
-  });
-  const got=texts.filter(t=>t!=null);
-  const same=got.length>1&&got.every(t=>t===got[0]);
-  const final=same?got[0]:got.join('');
-  Lok('ТЕКСТ: "'+final+'"');
-  Li('час: '+Math.round(performance.now()-t0)+' мс');
-  setSt('✓ '+final,'ok');
-  showResult(names,texts,RESULT,final,same);
-  buildRGB(warped,S,T,X,Y,cells,RESULT);
-}
+  const exp=6;
+  const c={tl:{x:corners.tl.x-exp,y:corners.tl.y-exp},tr:{x:corners.tr.x+exp,y:corners.tr.y-exp},br:{x:corners.br.x+exp,y:corners.br.y+exp},bl:{x:corners.bl.x-exp,y:corners.bl.y+exp}};
+  Li('TL('+c.tl.x+','+c.tl.y+') TR('+c.tr.x+','+c.tr.y+') BR('+c.br.x+','+c.br.y+') BL('+c.bl.x+','+c.bl.y+')');
 
-function rotN(a,n,k){let o=a;for(let i=0;i<k;i++)o=rot90(o,n);return o;}
+  Lh('2. WARP');
+  const S=600; // ТОЧНО як v5.1
+  const warped=warpPerspective(idata,w,h,c,S);
+  if(!warped){Le('Гомографія не вдалася');setSt('✗ warp failed',false);return;}
+  Lok('Warp → '+S+'×'+S);
 
-function logVariant(label,r,n){
-  if(!r){Ld(label+' → нічого');return;}
-  const nm=r.outs.length===3?['R','G','B']:['L'];
-  const s=r.outs.map((o,i)=>nm[i]+':'+(o&&o.text!=null?'"'+o.text+'"('+(o.agree*100).toFixed(0)+'%)':'—')).join('  ');
-  Ld(label+' ['+r.mode+'] '+s);
-}
+  Lh('3. ЗЕБРА');
+  const wGray=toGray(warped,S,S);
+  const zebra=verifyZebra(wGray,S,50); // minContrast=50, ТОЧНО як v5.1
+  if(zebra)Li('  голоси: '+zebra.voteStr);
+  if(!zebra){Le('Зебру не знайдено');drawResult(warped,S,null,idata,w,h,c);setSt('✗ зебру не знайдено',false);return;}
+  Lok('T='+zebra.T+'  mod='+zebra.modSize.toFixed(1)+'px  conf='+(zebra.confidence*100).toFixed(0)+'%');
 
-// ── ОВЕРЛЕЙ СІТКИ ────────────────────────────────────────────────
-function drawGrid(g,S,T,X,Y,eThr,ring){
-  const lum=o=>(o.r+o.g+o.b)/3;
-  // рамка: підсвічуємо кожен модуль за розпізнаним бітом
-  for(let i=0;i<T;i++){
-    const cellsIdx=[[0,i],[T-1,i],[i,0],[i,T-1]];
-    for(const [r,c] of cellsIdx){
-      const o=ring[r*T+c], dark=lum(o)<eThr;
-      g.fillStyle=dark?'rgba(255,60,60,0.30)':'rgba(60,170,255,0.22)';
-      g.fillRect(X[c],Y[r],X[c+1]-X[c],Y[r+1]-Y[r]);
-    }
-  }
-  // кути
-  g.fillStyle='rgba(255,210,63,0.55)';
-  for(const [r,c] of [[0,0],[0,T-1],[T-1,0],[T-1,T-1]])
-    g.fillRect(X[c],Y[r],X[c+1]-X[c],Y[r+1]-Y[r]);
-  // лінії сітки — саме ті, що зчитані з зебри
-  g.strokeStyle='rgba(60,150,220,0.35)'; g.lineWidth=Math.max(0.5,S/1400);
-  for(let i=0;i<=T;i++){
-    g.beginPath();g.moveTo(X[i],0);g.lineTo(X[i],S);g.stroke();
-    g.beginPath();g.moveTo(0,Y[i]);g.lineTo(S,Y[i]);g.stroke();
-  }
-  // межа зони даних
-  g.strokeStyle='rgba(80,235,120,0.7)';g.lineWidth=Math.max(1,S/500);
-  g.strokeRect(X[1],Y[1],X[T-1]-X[1],Y[T-1]-Y[1]);
-  // точки проби
-  g.strokeStyle='rgba(255,255,255,0.5)';g.lineWidth=Math.max(0.6,S/1200);
-  for(let r=1;r<T-1;r++)for(let c=1;c<T-1;c++){
-    const cx=(X[c]+X[c+1])/2,cy=(Y[r]+Y[r+1])/2;
-    const rad=Math.min(X[c+1]-X[c],Y[r+1]-Y[r])*0.25;
-    g.beginPath();g.arc(cx,cy,rad,0,7);g.stroke();
+  Lh('4. КРУЖЕЧКИ');
+  const circles=sampleCircles(warped,S,zebra.T,zebra.modSize);
+  const lumas=circles.cells.map(c=>(c.r+c.g+c.b)/3).sort((a,b)=>a-b);
+  Li('  '+circles.cells.length+' шт  r='+circles.circleR.toFixed(1)+'px');
+  Li('  яскравість: min='+lumas[0].toFixed(0)+' med='+lumas[lumas.length>>1].toFixed(0)+' max='+lumas[lumas.length-1].toFixed(0));
+
+  Lh('5. ДЕКОДУВАННЯ');
+  const decoded=decodeCircles(circles,zebra.T);
+
+  drawResult(warped,S,zebra,idata,w,h,c);
+  buildRGBPanel(warped,S,zebra.T,zebra.modSize,circles);
+
+  if(decoded&&decoded.text!==null){
+    Lok('РЕЗУЛЬТАТ: "'+decoded.text+'" ['+decoded.type+']');
+    setSt('✓ "'+decoded.text+'"',true);
+  } else {
+    Lw('Декод не вдався ['+(decoded?decoded.type:'—')+']');
+    setSt('⚠ зебра OK, декод null',null);
   }
 }
 
-// ── ПАНЕЛЬ КАНАЛІВ ───────────────────────────────────────────────
-function buildRGB(warped,S,T,X,Y,cells,RES){
-  const grid=document.getElementById('rgbgrid'); grid.innerHTML='';
-  const mk=lbl=>{const t=document.createElement('div');t.className='tile';
-    const c=document.createElement('canvas');c.width=S;c.height=S;
-    const l=document.createElement('div');l.className='tl';l.textContent=lbl;
-    t.appendChild(c);t.appendChild(l);grid.appendChild(t);return c;};
-  const c0=mk('вирівняно'); c0.getContext('2d').putImageData(warped,0,0);
-  const cols=[[255,60,60],[60,220,60],[70,110,255]];
-  ['R','G','B'].forEach((nm,ci)=>{
-    const cv=mk('канал '+nm),g=cv.getContext('2d');
-    g.fillStyle='#070707';g.fillRect(0,0,S,S);
-    g.strokeStyle='rgba(50,50,70,0.6)';g.lineWidth=Math.max(0.5,S/1400);
-    for(let i=0;i<=T;i++){g.beginPath();g.moveTo(X[i],0);g.lineTo(X[i],S);g.stroke();
-                          g.beginPath();g.moveTo(0,Y[i]);g.lineTo(S,Y[i]);g.stroke();}
-    const [R,G,B]=cols[ci];
-    for(const cell of cells){
-      const v=ci===0?cell.r:ci===1?cell.g:cell.b;
-      g.fillStyle='rgba('+R+','+G+','+B+','+(v/255).toFixed(2)+')';
-      g.beginPath();g.arc(cell.cx,cell.cy,cell.rad*1.3,0,7);g.fill();
-    }
-  });
+// ── ENTRY POINTS ──
+function processImage(img,orient){
+  clrLog();
+  document.getElementById('vidWrap').style.display='none';
+  mainCnv.style.display='block';
+  setSt('обробка…',null);
+  const{idata,w,h}=preprocess(img,orient,900);
+  run(idata,w,h);
 }
 
-// ── БЛОК РЕЗУЛЬТАТУ ──────────────────────────────────────────────
-function showResult(names,texts,R,final,same){
-  const box=document.getElementById('res'); box.innerHTML='';
-  const add=(k,v,cls)=>{const d=document.createElement('div');d.className='chan';
-    const a=document.createElement('span');a.className='cname';a.textContent=k;
-    const b=document.createElement('span');b.className='ctext '+(cls||'');b.textContent=v;
-    d.appendChild(a);d.appendChild(b);box.appendChild(d);};
-  texts.forEach((t,i)=>add(names[i],t==null?'—':t));
-  add('=',final,'ok');
-  const d=document.createElement('div');d.className='i';
-  d.textContent='симетрія '+R.mode+(same?' · один текст у всіх каналах':'')+
-    ' · виправлено бітів '+R.outs.reduce((a,o)=>a+(o?o.flips:0),0);
-  box.appendChild(d);
-}
-
-// ── ТОЧКИ ВХОДУ ──────────────────────────────────────────────────
+// Файл
 document.getElementById('fin').addEventListener('change',e=>{
-  const f=e.target.files[0]; if(!f) return;
-  const rd=new FileReader();
-  rd.onload=ev=>{
-    const o=exifOrient(ev.target.result);
-    const im=new Image();
-    im.onload=()=>setTimeout(()=>{clrLog();Li('файл: '+f.name);run(im,o);},20);
-    im.src=URL.createObjectURL(f);
+  const f=e.target.files[0];if(!f)return;
+  Li('Файл: '+f.name);
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const orient=getExifOrientation(ev.target.result);
+    const img=new Image();
+    img.onload=()=>setTimeout(()=>processImage(img,orient),30);
+    img.src=URL.createObjectURL(f);
   };
-  rd.readAsArrayBuffer(f); e.target.value='';
+  reader.readAsArrayBuffer(f);
+  e.target.value='';
 });
 
+// Камера
 let stream=null;
-const vid=document.getElementById('vid'), vwrap=document.getElementById('vwrap');
-document.getElementById('camBtn').onclick=async()=>{
+const vid=document.getElementById('vid');
+const vidWrap=document.getElementById('vidWrap');
+
+document.getElementById('camBtn').addEventListener('click',async()=>{
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},
-      width:{ideal:1600},height:{ideal:1200}}});
-    vid.srcObject=stream; await vid.play();
-    vwrap.style.display='flex'; cnv.style.display='none';
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}}});
+    vid.srcObject=stream;await vid.play();
+    vidWrap.style.display='flex';mainCnv.style.display='none';
     document.getElementById('camBtn').style.display='none';
     document.getElementById('capBtn').style.display='inline';
     document.getElementById('stopBtn').style.display='inline';
-    setSt('камера активна — натисніть «Знімок»','i');
-  }catch(err){Le('камера: '+err.message);setSt('× '+err.message,'e');}
-};
-document.getElementById('capBtn').onclick=()=>{
-  if(!stream) return;
-  const t=document.createElement('canvas');
-  t.width=vid.videoWidth||640; t.height=vid.videoHeight||480;
-  t.getContext('2d').drawImage(vid,0,0);
-  const im=new Image();
-  im.onload=()=>setTimeout(()=>{vwrap.style.display='none';cnv.style.display='block';run(im,1);},20);
-  im.src=t.toDataURL('image/png');
-};
-document.getElementById('stopBtn').onclick=()=>{
+    setSt('◎ камера — натисни Знімок',null);
+  }catch(err){Le('Камера: '+err.message);setSt('✗ '+err.message,false);}
+});
+
+document.getElementById('capBtn').addEventListener('click',()=>{
+  if(!stream)return;
+  const tmp=document.createElement('canvas');
+  tmp.width=vid.videoWidth||640;tmp.height=vid.videoHeight||480;
+  tmp.getContext('2d').drawImage(vid,0,0);
+  const img=new Image();
+  img.onload=()=>setTimeout(()=>processImage(img,1),30);
+  img.src=tmp.toDataURL('image/jpeg',0.92);
+});
+
+document.getElementById('stopBtn').addEventListener('click',()=>{
   if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
-  vwrap.style.display='none'; cnv.style.display='block';
+  vidWrap.style.display='none';mainCnv.style.display='block';
   document.getElementById('camBtn').style.display='inline';
   document.getElementById('capBtn').style.display='none';
   document.getElementById('stopBtn').style.display='none';
-  setSt('— очікування —','d');
-};
+  setSt('— очікування —',null);
+});
 </script>
-</body>
-</html>
 </body>
 </html>

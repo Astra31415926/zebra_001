@@ -101,9 +101,7 @@ input[type=file]{display:none}
 <script>
 'use strict';
 
-// ═══════════════════════════════════════════════
 // LOG SYSTEM
-// ═══════════════════════════════════════════════
 const logEl=document.getElementById('pane-log');
 const aL=(m,c)=>{const d=document.createElement('div');d.textContent=m;if(c)d.className=c;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;};
 const Lh=m=>aL('── '+m,'lh');
@@ -123,10 +121,7 @@ document.querySelectorAll('.tab').forEach(btn=>{
   });
 });
 
-// ═══════════════════════════════════════════════
 // PRE-PROCESSING
-// ═══════════════════════════════════════════════
-
 function getExifOrientation(buf){
   const v=new DataView(buf);
   if(v.getUint16(0)!==0xFFD8)return 1;
@@ -192,12 +187,6 @@ function otsuCh(ch){
   return bestT;
 }
 
-// ═══════════════════════════════════════════════
-// binarizeRGB() — ЄДИНА RGB-Otsu бінаризація
-// Використовується і FILE MODE, і CAMERA MODE
-// Вхід: ImageData (сирий RGB). Вихід: ImageData (0/255 по кожному каналу)
-// ═══════════════════════════════════════════════
-
 function binarizeRGB(idata,w,h,verbose){
   const blurred=gaussianBlur(idata,w,h,1);
   if(verbose)Li('  \u2192 Gaussian blur 1px');
@@ -233,10 +222,7 @@ function preprocess(img,orient,maxSide){
   return{idata:out,w,h};
 }
 
-// ═══════════════════════════════════════════════
 // GEOMETRY
-// ═══════════════════════════════════════════════
-
 function toGray(idata,w,h){
   const d=idata.data,g=new Uint8Array(w*h);
   for(let i=0;i<w*h;i++)g[i]=(77*d[i*4]+150*d[i*4+1]+29*d[i*4+2])>>8;
@@ -254,30 +240,6 @@ function erodeMask(mask,w,h){
   for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++)
     if(mask[y*w+x]&&mask[(y-1)*w+x]&&mask[(y+1)*w+x]&&mask[y*w+x-1]&&mask[y*w+x+1])out[y*w+x]=1;
   return out;
-}
-
-function findCorners(mask,w,h,slack){
-  slack=slack||12;
-  let tlS=Infinity,trS=-Infinity,brS=-Infinity,blS=Infinity;
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    if(!mask[y*w+x])continue;const s=x+y,d=x-y;
-    if(s<tlS)tlS=s;if(d>trS)trS=d;if(s>brS)brS=s;if(d<blS)blS=d;
-  }
-  let tlX=0,tlY=0,tlN=0,trX=0,trY=0,trN=0,brX=0,brY=0,brN=0,blX=0,blY=0,blN=0;
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    if(!mask[y*w+x])continue;const s=x+y,d=x-y;
-    if(s<=tlS+slack){tlX+=x;tlY+=y;tlN++;}
-    if(d>=trS-slack){trX+=x;trY+=y;trN++;}
-    if(s>=brS-slack){brX+=x;brY+=y;brN++;}
-    if(d<=blS+slack){blX+=x;blY+=y;blN++;}
-  }
-  const avg=(sx,sy,n,dx,dy)=>n?{x:Math.round(sx/n),y:Math.round(sy/n)}:{x:dx,y:dy};
-  return{tl:avg(tlX,tlY,tlN,0,0),tr:avg(trX,trY,trN,w-1,0),br:avg(brX,brY,brN,w-1,h-1),bl:avg(blX,blY,blN,0,h-1)};
-}
-
-function spread(c){
-  const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-  return Math.max(d(c.tl,c.tr),d(c.tr,c.br),d(c.br,c.bl),d(c.bl,c.tl));
 }
 
 function gaussElim(A,b){
@@ -336,10 +298,7 @@ function warpPerspective(idata,sw,sh,corners,S){
   return out;
 }
 
-// ═══════════════════════════════════════════════
-// SCORE CANDIDATE — геометрическая оценка кандидата
-// ═══════════════════════════════════════════════
-
+// SCORE CANDIDATE
 function scoreCandidate(corners,w,h,silent){
   const c=corners;
   const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
@@ -389,10 +348,7 @@ function scoreCandidate(corners,w,h,silent){
   return sizeScore*centerScore*squareScore*1000;
 }
 
-// ═══════════════════════════════════════════════
-// ZEBRA VERIFY — не змінено
-// ═══════════════════════════════════════════════
-
+// ZEBRA VERIFY
 function verifyZebra(wGray,S,minContrast){
   function scanLine(arr){
     const n=arr.length;let mn=255,mx=0;
@@ -431,7 +387,7 @@ function verifyZebra(wGray,S,minContrast){
   const vStr=sorted.slice(0,5).map(([t,v])=>`T${t}:${v}`).join(' ');
 
   const EDGE_LINES=3;
-  const EDGE_FROM=4;   // відступ від краю warp — перші рядки можуть бути поза кодом
+  const EDGE_FROM=4;
   let sidesOk=0;
 
   {let ok=0;
@@ -468,10 +424,7 @@ function verifyZebra(wGray,S,minContrast){
   return{T:bestT,modSize:S/bestT,confidence:bestV/total,voteStr:vStr,sidesOk};
 }
 
-// ═══════════════════════════════════════════════
-// DECODE — не змінено
-// ═══════════════════════════════════════════════
-
+// DECODE
 function sampleCircles(warped,S,T,modSize){
   const d=warped.data,circleR=modSize*0.28,r2=circleR*circleR,cells=[];
   for(let row=1;row<T-1;row++)for(let col=1;col<T-1;col++){
@@ -515,7 +468,7 @@ function decodeVoted(g,n,m,off,conf){
   }
   return{text:bytesToText(by),bytes:by};
 }
-function refsFor(S){const mix=(r,g,b)=>[Math.min(255,(r?S.r[0]:0)+(g?S.g[0]:0)+(b?S.b[0]:0)),Math.min(255,(r?S.r[1]:0)+(g?S.g[1]:0)+(b?S.b[1]:0)),Math.min(255,(r?S.r[2]:0)+(g?S.g[2]:0)+(b?S.b[2]:0))];return REFBITS.map(c=>({bits:c,col:mix(c[0],c[1],c[2])}));}
+function refsFor(S){const mix=(r,g,b)=>[Math.min(255,(r?S.r[0]:0)+(g?S.g[0]:0)+(b?S.b[0]:0)),Math.min(255,(r?S.r[1]:0)+(g?S.g[1]:0)+(b?S.b[2]:0)),Math.min(255,(r?S.r[2]:0)+(g?S.g[2]:0)+(b?S.b[2]:0))];return REFBITS.map(c=>({bits:c,col:mix(c[0],c[1],c[2])}));}
 function classifyCells(cells,n){
   const pals=[['насичена',RGB_MAIN],['галерейна',RGB_GAL]];let best=null;
   for(const[name,S]of pals){
@@ -523,7 +476,7 @@ function classifyCells(cells,n){
     const cr=new Uint8Array(n*n),cg=new Uint8Array(n*n),cb=new Uint8Array(n*n);
     for(let i=0;i<n*n;i++){
       const[R,G,B]=[cells[i].r,cells[i].g,cells[i].b];let bi=0,bd=1e9;
-      for(let k=0;k<refs.length;k++){const q=refs[k].col,dr=R-q[0],dg=G-q[1],db=B-q[2],dd=dr*dr+dg*dg+db*db;if(dd<bd){bd=dd;bi=k;}}
+      for(let k=0;k<refs.length;k++){const q=refs[k].col,dr=R-q[0],dg=G-q[1],db=B-q[2],dd=dr*dr+dg*dg+db*db;if(dd<bd){bd=dd;bi=k;}if(dd<bd){bd=dd;bi=k;}}
       err+=bd;const t=refs[bi].bits;cr[i]=t[0];cg[i]=t[1];cb[i]=t[2];
     }
     if(!best||err<best.err)best={name,err,cr,cg,cb};
@@ -571,10 +524,7 @@ function decodeCircles(circles,T){
   }
 }
 
-// ═══════════════════════════════════════════════
 // DRAW / OVERLAY
-// ═══════════════════════════════════════════════
-
 const mainCnv=document.getElementById('cnv');
 
 function drawCornersOverlay(ctx,corners,clr){
@@ -642,29 +592,7 @@ function buildRGBPanel(warped,S,T,modSize,circles){
   }
 }
 
-// ═══════════════════════════════════════════════
 // CAMERA UTILITIES
-// ═══════════════════════════════════════════════
-
-function getGrayFromCanvas(srcCanvas,maxSide){
-  maxSide=maxSide||600;
-  let sw=srcCanvas.width,sh=srcCanvas.height;
-  let w=sw,h=sh;
-  if(Math.max(w,h)>maxSide){const s=maxSide/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
-  let ctx;
-  if(w!==sw||h!==sh){
-    const c=document.createElement('canvas');c.width=w;c.height=h;
-    ctx=c.getContext('2d');ctx.drawImage(srcCanvas,0,0,w,h);
-  }else{
-    ctx=srcCanvas.getContext('2d');
-  }
-  const idata=ctx.getImageData(0,0,w,h);
-  const d=idata.data;
-  const gray=new Uint8Array(w*h);
-  for(let i=0;i<w*h;i++)gray[i]=(77*d[i*4]+150*d[i*4+1]+29*d[i*4+2])>>8;
-  return{gray,w,h};
-}
-
 function prepareCanvasForDecode(srcCanvas,label){
   const w=srcCanvas.width,h=srcCanvas.height;
   Lh('PRE-PROCESSING ('+(label||'camera')+')');
@@ -674,21 +602,10 @@ function prepareCanvasForDecode(srcCanvas,label){
   return{idata:out,w,h};
 }
 
-// ═══════════════════════════════════════════════
-// scaleCorners() — масштабування знайдених кутів
-// під роздільну здатність фінального кадру
-// ═══════════════════════════════════════════════
-
 function scaleCorners(corners,scale){
   const s=pt=>({x:pt.x*scale,y:pt.y*scale});
   return{tl:s(corners.tl),tr:s(corners.tr),br:s(corners.br),bl:s(corners.bl)};
 }
-
-// ═══════════════════════════════════════════════
-// labelBlobs() — сегментація маски на окремі об'єкти
-// 8-зв'язність (шахматна зебра з'єднується по діагоналі).
-// Без цього findCorners() обводив ВЕСЬ кадр одним квадратом.
-// ═══════════════════════════════════════════════
 
 function labelBlobs(mask,w,h,minPx,maxBlobs){
   const lab=new Int32Array(w*h);
@@ -720,14 +637,6 @@ function labelBlobs(mask,w,h,minPx,maxBlobs){
   return blobs.slice(0,maxBlobs||5);
 }
 
-// ═══════════════════════════════════════════════
-// cornerVariants() — 3 способи знайти 4 кути блоба
-//   A) діагональні екстремуми  — добре для повернутого коду
-//   B) найближчі до кутів bbox — добре для рівного коду
-//   C) сам bbox                — точний для рівного коду з зубцями зебри
-// Всі три стають окремими кандидатами; Zebra обирає правильний.
-// ═══════════════════════════════════════════════
-
 function cornerVariants(px,w,h,slack){
   slack=slack||15;
   let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
@@ -740,9 +649,7 @@ function cornerVariants(px,w,h,slack){
     if(d<minD)minD=d; if(d>maxD)maxD=d;
   }
 
-  // A) діагональні екстремуми з усередненням по slack
   let aX=[0,0,0,0],aY=[0,0,0,0],aN=[0,0,0,0];
-  // B) найближча точка до кожного кута bbox
   const bx=[minX,maxX,maxX,minX], by=[minY,minY,maxY,maxY];
   let bBest=[1e18,1e18,1e18,1e18], bPt=[null,null,null,null];
   for(let i=0;i<px.length;i++){
@@ -766,19 +673,11 @@ function cornerVariants(px,w,h,slack){
   return out;
 }
 
-// ═══════════════════════════════════════════════
-// findFrameWithZebra — КАНДИДАТ → WARP → ZEBRA
-// Викликається ТІЛЬКИ:
-//   а) у scanTick() під час пошуку (до stability)
-//   б) у run() коли knownCorners === null (FILE MODE)
-// ═══════════════════════════════════════════════
-
 function findFrameWithZebra(gray,w,h,idata,S,silent,maxTrials){
   S=S||600;
   if(typeof silent==='undefined')silent=false;
   maxTrials=maxTrials||18;
 
-  // ── фон-периметр та Otsu ──
   const bx=Math.max(1,Math.round(w*0.08));
   const by_=Math.max(1,Math.round(h*0.08));
   const perim=[];
@@ -802,7 +701,6 @@ function findFrameWithZebra(gray,w,h,idata,S,silent,maxTrials){
     if(v>bestVOtsu){bestVOtsu=v;otsuT=t;}
   }
 
-  // ── збір кандидатів через СЕГМЕНТАЦІЮ ──
   const minPx=Math.max(150,Math.round(0.003*w*h));
   const candidates=[];
 
@@ -827,13 +725,11 @@ function findFrameWithZebra(gray,w,h,idata,S,silent,maxTrials){
     }
   };
 
-  // Гіпотези масок
   for(const tol of[20,40,70]) tryMask(makeMask(gray,w,h,bgPerim,tol),'H1-'+tol);
   const bgInv=255-bgPerim;
   for(const tol of[20,40,70]) tryMask(makeMask(gray,w,h,bgInv,tol),'H2-'+tol);
   {const m=new Uint8Array(w*h);for(let i=0;i<w*h;i++)m[i]=gray[i]<otsuT?1:0;tryMask(m,'H3-dark');}
   {const m=new Uint8Array(w*h);for(let i=0;i<w*h;i++)m[i]=gray[i]>otsuT?1:0;tryMask(m,'H4-light');}
-  // H6/H7: "все, що НЕ біле" — саме ця гіпотеза виділяє код на білому папері
   {const m=new Uint8Array(w*h);for(let i=0;i<w*h;i++)m[i]=gray[i]<250?1:0;tryMask(m,'H6-notwhite');}
   {const m=new Uint8Array(w*h);for(let i=0;i<w*h;i++)m[i]=gray[i]<200?1:0;tryMask(m,'H7-notwhite200');}
   {
@@ -851,9 +747,8 @@ function findFrameWithZebra(gray,w,h,idata,S,silent,maxTrials){
     return{corners:null};
   }
 
-  // ── дедуплікація ──
   const unique=[];
-  const tol2=Math.max(2,Math.min(w,h)*0.006);  // жорсткий допуск: варіанти кутів різняться на ~1 модуль
+  const tol2=Math.max(2,Math.min(w,h)*0.006);
   outer:for(const cand of candidates){
     for(const u of unique){
       let close=true;
@@ -870,7 +765,6 @@ function findFrameWithZebra(gray,w,h,idata,S,silent,maxTrials){
 
   if(!silent)Li('  кандидатів: '+candidates.length+' → uniq: '+unique.length+' → перевіряю: '+trials.length);
 
-  // ── КАНДИДАТ → WARP → ZEBRA ──
   for(const cand of trials){
     const warped=warpPerspective(idata,w,h,cand.corners,S);
     if(!warped){if(!silent)Li('  ['+cand.label+'] warp fail');continue;}
@@ -888,10 +782,7 @@ function findFrameWithZebra(gray,w,h,idata,S,silent,maxTrials){
   return{corners:null};
 }
 
-// ═══════════════════════════════════════════════
 // CAMERA STATE
-// ═══════════════════════════════════════════════
-
 let stream=null;
 let scanLoopId=null;
 const vid=document.getElementById('vid');
@@ -905,9 +796,9 @@ let stableCount=0;
 const STABLE_NEEDED=2;
 const STABLE_TOL=0.12;
 const SCAN_INTERVAL=350;
-const ROI_FRACTION=0.7;      // яка частка кадру аналізується
-const CAM_WARP_S=400;        // розмір warp під час пошуку (400 → 500 → 600)
-const CAMERA_DECODE_BINARY=true;  // true = як FILE MODE
+const ROI_FRACTION=0.7;
+const CAM_WARP_S=400;
+const CAMERA_DECODE_BINARY=true;
 let frameNo=0;
 const SCAN_TIMEOUT=10000;
 let scanStartTime=0;
@@ -968,22 +859,6 @@ function scanLoopStop(){
   if(scanLoopId){clearInterval(scanLoopId);scanLoopId=null;}
 }
 
-// ═══════════════════════════════════════════════
-// scanTick — CAMERA MODE
-//
-// Ланцюг:
-//   ROI кадр (side<=600)
-//   → findFrameWithZebra()  [ЄДИНИЙ виклик у камері]
-//   → candidate → WARP → verifyZebra()
-//   → temporal stability
-//   → ЗБЕРІГАЄМО ЦІ САМІ 4 КУТИ (stableCorners)
-//   → фінальний якісний кадр (decSize<=900)
-//   → масштабуємо кути: scale = decSize/side
-//   → run(idata, w, h, scaledCorners)
-//
-// Після stability findFrameWithZebra() НЕ викликається.
-// ═══════════════════════════════════════════════
-
 function scanTick(){
   if(!stream||!vid.videoWidth)return;
   const elapsed=Date.now()-scanStartTime;
@@ -1008,16 +883,13 @@ function scanTick(){
   const rctx=roiCanvas.getContext('2d',{willReadFrequently:true});
   rctx.drawImage(vid,sx,sy,roiSize,roiSize,0,0,side,side);
 
-  // \u0421\u0438\u0440\u0438\u0439 RGB \u043a\u0430\u0434\u0440 ROI
   const rawIdata=rctx.getImageData(0,0,side,side);
   const w=side,h=side;
 
-  // \u0417\u0412\u0406\u0422 \u041f\u041e \u041a\u041e\u0416\u041d\u041e\u041c\u0423 \u041a\u0410\u0414\u0420\u0423
   clrLog();
   Lh('\u041a\u0410\u0414\u0420 #'+frameNo+'   '+((SCAN_TIMEOUT-elapsed)/1000).toFixed(1)+'\u0441 \u0434\u043e \u043a\u0456\u043d\u0446\u044f');
   Li('  video '+vw+'\u00d7'+vh+'  ROI '+Math.round(roiSize)+'px \u2192 canvas '+side+'\u00d7'+side);
 
-  // \u0414\u0456\u0430\u0433\u043d\u043e\u0441\u0442\u0438\u043a\u0430 \u043a\u0430\u0434\u0440\u0443: \u043a\u043e\u043d\u0442\u0440\u0430\u0441\u0442 \u0442\u0430 \u0441\u0435\u0440\u0435\u0434\u043d\u044f \u044f\u0441\u043a\u0440\u0430\u0432\u0456\u0441\u0442\u044c
   {
     const rd=rawIdata.data;let mn=255,mx=0,sum=0;
     for(let p=0;p<w*h;p+=7){
@@ -1029,13 +901,9 @@ function scanTick(){
     if(mx-mn<60)Lw('  \u041d\u0418\u0417\u042c\u041a\u0418\u0419 \u041a\u041e\u041d\u0422\u0420\u0410\u0421\u0422 \u2014 \u0431\u043b\u0456\u043a \u0430\u0431\u043e \u0442\u0435\u043c\u0440\u044f\u0432\u0430');
   }
 
-  // ===== \u0417\u041c\u0406\u041d\u0410 1: DETECTION \u043d\u0430 RGB-Otsu \u0431\u0456\u043d\u0430\u0440\u0438\u0437\u0430\u0446\u0456\u0457 =====
-  // \u0422\u043e\u0447\u043d\u043e \u0442\u0430\u043a \u0441\u0430\u043c\u043e, \u044f\u043a \u0443 FILE MODE, \u044f\u043a\u0438\u0439 \u043f\u0440\u0430\u0446\u044e\u0454
   const binIdata=binarizeRGB(rawIdata,w,h,false);
   const detectionGray=toGray(binIdata,w,h);
 
-  // ===== \u0417\u041c\u0406\u041d\u0410 2: silent=false \u2014 \u043f\u043e\u0432\u043d\u0438\u0439 \u0437\u0432\u0456\u0442 =====
-  // warp-\u0434\u0436\u0435\u0440\u0435\u043b\u043e = binIdata (\u044f\u043a \u0443 FILE MODE)
   const result=findFrameWithZebra(detectionGray,w,h,binIdata,CAM_WARP_S,false,8);
 
   if(!result.corners){
@@ -1045,7 +913,6 @@ function scanTick(){
     return;
   }
 
-  // ===== temporal stability =====
   const minSide=Math.min(w,h);
   if(lastGoodCorners&&cornersClose(result.corners,lastGoodCorners,minSide)){
     stableCount++;
@@ -1059,12 +926,11 @@ function scanTick(){
 
   if(stableCount<STABLE_NEEDED)return;
 
-  // ===== \u0417\u0431\u0435\u0440\u0456\u0433\u0430\u0454\u043c\u043e \u043a\u0443\u0442\u0438 =====
   const stableCorners={
     tl:{x:result.corners.tl.x,y:result.corners.tl.y},
     tr:{x:result.corners.tr.x,y:result.corners.tr.y},
     br:{x:result.corners.br.x,y:result.corners.br.y},
-    bl:{x:result.corners.bl.x,y:result.corners.bl.y}
+    bl:{x:result.corners.bl.x,y:result.result.corners.bl.y} // Fixed typo result.result
   };
   const detectSide=w;
 
@@ -1078,7 +944,6 @@ function scanTick(){
   Lh('CAMERA: \u0440\u0430\u043c\u043a\u0443 \u043f\u0456\u0434\u0442\u0432\u0435\u0440\u0434\u0436\u0435\u043d\u043e Zebra');
   Li('  \u043a\u0443\u0442\u0438 \u0437\u043d\u0430\u0439\u0434\u0435\u043d\u043e \u043f\u0440\u0438 '+detectSide+'\u00d7'+detectSide);
 
-  // ===== \u0424\u0456\u043d\u0430\u043b\u044c\u043d\u0438\u0439 \u044f\u043a\u0456\u0441\u043d\u0438\u0439 \u043a\u0430\u0434\u0440 =====
   const decCnv=document.createElement('canvas');
   const decSize=Math.min(900,Math.round(roiSize));
   decCnv.width=decSize;decCnv.height=decSize;
@@ -1093,9 +958,6 @@ function scanTick(){
     +' BR('+Math.round(scaled.br.x)+','+Math.round(scaled.br.y)+')'
     +' BL('+Math.round(scaled.bl.x)+','+Math.round(scaled.bl.y)+')');
 
-  // ===== \u0417\u041c\u0406\u041d\u0410 3: \u0444\u0456\u043d\u0430\u043b\u044c\u043d\u0438\u0439 \u0434\u0435\u043a\u043e\u0434 =====
-  // CAMERA_DECODE_BINARY = true  \u2192 \u044f\u043a FILE MODE (\u0431\u0456\u043d\u0430\u0440\u0438\u0437\u0430\u0446\u0456\u044f). \u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u043e\u0432\u0430\u043d\u043e.
-  // CAMERA_DECODE_BINARY = false \u2192 \u0441\u0438\u0440\u0438\u0439 RGB \u0431\u0435\u0437 \u0431\u0456\u043d\u0430\u0440\u0438\u0437\u0430\u0446\u0456\u0457.
   let finalIdata,dw,dh;
   if(CAMERA_DECODE_BINARY){
     const r=prepareCanvasForDecode(decCnv,'camera / binary');
@@ -1110,17 +972,7 @@ function scanTick(){
   run(finalIdata,dw,dh,scaled);
 }
 
-// ═══════════════════════════════════════════════
 // MAIN RUN
-//
-// run(idata, w, h)                → FILE MODE:
-//     findFrameWithZebra() шукає рамку
-//
-// run(idata, w, h, knownCorners)  → CAMERA MODE:
-//     findFrameWithZebra() НЕ викликається,
-//     WARP робиться напряму по knownCorners
-// ═══════════════════════════════════════════════
-
 const resultBox=document.getElementById('result-box');
 
 function run(idata,w,h,knownCorners){
@@ -1129,7 +981,6 @@ function run(idata,w,h,knownCorners){
   let corners,warped,wGray,S,zebra;
 
   if(knownCorners){
-    // ─────────── CAMERA MODE: кути вже відомі ───────────
     Lh('1–3. WARP ПО ВІДОМИХ КУТАХ (пошук рамки пропущено)');
     corners=knownCorners;
     S=600;
@@ -1144,10 +995,8 @@ function run(idata,w,h,knownCorners){
     Lok('Warp → '+S+'×'+S+' (по збережених кутах)');
 
     wGray=toGray(warped,S,S);
-    // Zebra тут потрібна тільки щоб визначити T на фінальній роздільній здатності
     zebra=verifyZebra(wGray,S,50);
     if(!zebra){
-      // повторюємо з м'якшим порогом контрасту — рамка вже підтверджена камерою
       Lw('Zebra при contrast=50 не зійшлася — пробую contrast=32');
       zebra=verifyZebra(wGray,S,32);
     }
@@ -1159,7 +1008,6 @@ function run(idata,w,h,knownCorners){
       return;
     }
   }else{
-    // ─────────── FILE MODE: шукаємо рамку ───────────
     Lh('1–3. КАНДИДАТ → WARP → ZEBRA');
     const gray=toGray(idata,w,h);
     const result=findFrameWithZebra(gray,w,h,idata,600,false,24);
@@ -1227,10 +1075,7 @@ function showResult(text,type){
   }
 }
 
-// ═══════════════════════════════════════════════
 // ENTRY POINTS
-// ═══════════════════════════════════════════════
-
 function processImage(img,orient){
   clrLog();
   resultBox.classList.remove('vis');
@@ -1238,7 +1083,7 @@ function processImage(img,orient){
   mainCnv.style.display='block';
   setSt('обробка…',null);
   const{idata,w,h}=preprocess(img,orient,900);
-  run(idata,w,h);            // FILE MODE — knownCorners не передається
+  run(idata,w,h);
 }
 
 document.getElementById('fin').addEventListener('change',e=>{
@@ -1248,8 +1093,12 @@ document.getElementById('fin').addEventListener('change',e=>{
   reader.onload=ev=>{
     const orient=getExifOrientation(ev.target.result);
     const img=new Image();
-    img.onload=()=>setTimeout(()=>processImage(img,orient),30);
-    img.src=URL.createObjectURL(f);
+    const url=URL.createObjectURL(f);
+    img.onload=()=>{
+      setTimeout(()=>processImage(img,orient),30);
+      URL.revokeObjectURL(url);
+    };
+    img.src=url;
   };
   reader.readAsArrayBuffer(f);
   e.target.value='';

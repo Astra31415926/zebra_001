@@ -660,6 +660,73 @@ function decodeCircles(circles,T,log=true){
 // ════════════════════════════════════════════════════════
 const S_WARP=600;
 
+// ════════════════════════════════════════════════════════
+//  v3 — ГІПОТЕЗИ СТИСКУ + ПЕРЕВІРКА КУТІВ ЗЕБРИ
+//  (обгортка над ядром v6.2; жодна функція ядра не змінена)
+// ════════════════════════════════════════════════════════
+
+// Зсув чотирикутника ВСЕРЕДИНУ на insetPx, виміряних у warped-квадраті
+// (тобто в модулях), через ту саму гомографію. Ніякої обрізки картинки.
+function insetCorners(corners,S,insetPx){
+  if(!(insetPx>0))return corners;
+  const s4=[corners.tl,corners.tr,corners.br,corners.bl];
+  const d4=[{x:0,y:0},{x:S-1,y:0},{x:S-1,y:S-1},{x:0,y:S-1}];
+  const H=computeH(s4,d4);if(!H)return null;
+  const Hi=inv3(H);if(!Hi)return null;
+  const a=insetPx,b=S-1-insetPx;
+  if(b-a<S*0.25)return null;
+  const p=(x,y)=>applyH(Hi,x,y);
+  return{tl:p(a,a),tr:p(b,a),br:p(b,b),bl:p(a,b)};
+}
+
+// Валідатор сітки по інваріанту зебри:
+//   4 кутові модулі ЗАВЖДИ чорні + регулярне чергування по периметру.
+function checkZebraRing(wGray,S,T){
+  const mod=S/T;
+  let mn=255,mx=0;
+  for(let i=0;i<S*S;i+=5){const v=wGray[i];if(v<mn)mn=v;if(v>mx)mx=v;}
+  const thr=(mn+mx)/2;
+  const cellL=(row,col)=>{
+    const cx=col*mod+mod/2,cy=row*mod+mod/2,r=Math.max(1,mod*0.22);
+    let s=0,n=0;
+    for(let y=Math.round(cy-r);y<=Math.round(cy+r);y++)
+      for(let x=Math.round(cx-r);x<=Math.round(cx+r);x++){
+        if(x<0||y<0||x>=S||y>=S)continue;s+=wGray[y*S+x];n++;
+      }
+    return n?s/n:128;
+  };
+  const cor=[cellL(0,0),cellL(0,T-1),cellL(T-1,T-1),cellL(T-1,0)];
+  const dark=cor.filter(v=>v<thr).length;
+  const sides=[[],[],[],[]];
+  for(let i=0;i<T;i++){
+    sides[0].push(cellL(0,i));sides[1].push(cellL(T-1,i));
+    sides[2].push(cellL(i,0));sides[3].push(cellL(i,T-1));
+  }
+  let alt=0,tot=0;
+  for(const arr of sides){
+    const bits=arr.map(v=>v<thr?1:0);
+    for(let i=1;i<bits.length;i++){tot++;if(bits[i]!==bits[i-1])alt++;}
+  }
+  return{dark,alt:tot?alt/tot:0,thr:Math.round(thr)};
+}
+
+// Одна гіпотеза: warp → verifyZebra → перевірка периметра → семпл → декод
+function evalQuad(roiData,rw,rh,quad,tag){
+  const warped=warpPerspective(roiData,rw,rh,quad,S_WARP);
+  if(!warped)return null;
+  const wGray=toGray(warped.data,S_WARP,S_WARP);
+  const zebra=verifyZebra(wGray,S_WARP,45);
+  if(!zebra)return null;
+  const ring=checkZebraRing(wGray,S_WARP,zebra.T);
+  const circles=sampleCircles(warped,S_WARP,zebra.T,zebra.modSize);
+  const decoded=decodeCircles(circles,zebra.T,false);
+  const ok=!!(decoded&&decoded.text);
+  const struct=(ring.dark/4)*0.5+ring.alt*0.5;
+  const score=struct*1000+(ok?300:0)+zebra.confidence*100;
+  return{quad,warped,zebra,ring,circles,decoded,score,tag};
+}
+const ringPass=h=>h.ring.dark===4&&h.ring.alt>=0.75;
+
 function processROI(idata,w,h,roi,log=false){
   // Crop to ROI
   const roiData=cropImageData(idata,w,roi);
@@ -678,20 +745,29 @@ function processROI(idata,w,h,roi,log=false){
     bl:{x:Math.max(0,corners.bl.x-exp),y:Math.min(rh-1,corners.bl.y+exp)}
   };
 
-  // warp
-  const warped=warpPerspective(roiData,rw,rh,c,S_WARP);
-  if(!warped)return null;
+  // ── гіпотези: 0 → 0.5 → 1 → 1.5 → 2 модулі стиску ──
+  const hyps=[];
+  const h0=evalQuad(roiData,rw,rh,c,'0');
+  if(h0){hyps.push(h0);if(log)Li('    [стиск 0] T='+h0.zebra.T+' кути='+h0.ring.dark+'/4 alt='+h0.ring.alt.toFixed(2)+' conf='+h0.zebra.confidence.toFixed(2));}
+  if(!h0||!ringPass(h0)){
+    const modGuess=h0?h0.zebra.modSize:S_WARP/23;
+    for(const k of[0.5,1,1.5,2]){
+      const q=insetCorners(c,S_WARP,k*modGuess);
+      if(!q)continue;
+      const hk=evalQuad(roiData,rw,rh,q,String(k));
+      if(!hk){if(log)Li('    [стиск '+k+'] зебра не підтверджена');continue;}
+      hyps.push(hk);
+      if(log)Li('    [стиск '+k+'] T='+hk.zebra.T+' кути='+hk.ring.dark+'/4 alt='+hk.ring.alt.toFixed(2)+' conf='+hk.zebra.confidence.toFixed(2));
+      if(ringPass(hk)&&hk.decoded&&hk.decoded.text)break;
+    }
+  }
+  if(!hyps.length)return null;
+  hyps.sort((a,b)=>b.score-a.score);
+  const best=hyps[0];
+  if(log)Li('    → обрано стиск='+best.tag+' модуля(ів)');
 
-  // verifyZebra
-  const wGray=toGray(warped.data,S_WARP,S_WARP);
-  const zebra=verifyZebra(wGray,S_WARP,45);
-  if(!zebra)return null;
-
-  // circles
-  const circles=sampleCircles(warped,S_WARP,zebra.T,zebra.modSize);
-
-  // decode
-  const decoded=decodeCircles(circles,zebra.T,log);
+  // decode (з логом лише для переможця)
+  const decoded=log?decodeCircles(best.circles,best.zebra.T,true):best.decoded;
 
   // Map corners back to original image coordinates
   const origCorners={
@@ -703,8 +779,9 @@ function processROI(idata,w,h,roi,log=false){
 
   return{
     roi,corners:origCorners,spread:sp,
-    warped,zebra,circles,decoded,
-    confidence:(decoded&&decoded.text!==null)?zebra.confidence*(decoded.score||0.5):zebra.confidence*0.1
+    warped:best.warped,zebra:best.zebra,ring:best.ring,inset:best.tag,
+    circles:best.circles,decoded,
+    confidence:(decoded&&decoded.text!==null)?best.zebra.confidence*(decoded.score||0.5)*(best.ring.dark===4?1:0.4):best.zebra.confidence*0.1
   };
 }
 
@@ -809,6 +886,13 @@ function updateDiag(result,cands,frameIdx,totalFrames){
     html+=`<div><span class="dk">modSize</span> <span>${z.modSize.toFixed(1)}px</span></div>`;
     html+=`<div><span class="dk">zebra conf</span> <span>${(z.confidence*100).toFixed(0)}%</span></div>`;
     html+=`<div><span class="dk">votes</span> <span style="font-size:10px">${z.voteStr}</span></div>`;
+    if(result.inset!==undefined)html+=`<div><span class="dk">стиск</span> <span>${result.inset} модуля(ів)</span></div>`;
+    if(result.ring){
+      const okc=result.ring.dark===4?'var(--ok)':'var(--warn)';
+      html+=`<div><span class="dk">кути зебри</span> <span style="color:${okc}">${result.ring.dark}/4 темних</span></div>`;
+      html+=`<div><span class="dk">чергування</span> <span>${(result.ring.alt*100).toFixed(0)}%</span></div>`;
+      html+=`<div><span class="dk">поріг bin</span> <span>${result.ring.thr}</span></div>`;
+    }
     if(d){html+=`<div><span class="dk">type</span> <span>${d.type}</span></div>`;}
     html+=`<div><span class="dk">roi</span> <span>${result.roi.method}</span></div>`;
   }

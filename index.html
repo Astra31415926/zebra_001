@@ -77,14 +77,8 @@ document.querySelectorAll('.tab').forEach(btn=>{
   });
 });
 
-// ════════════════════════════════════════════════════════
-//  PRE-PROCESSING PIPELINE
-//  Мета: підготувати погане зображення (камера, монітор)
-//  до незмінного декодера v5.1.
-//  Декодер нижче — заморожений, не змінювати!
-// ════════════════════════════════════════════════════════
 
-// ── EXIF ──
+
 function getExifOrientation(buf){
   const v=new DataView(buf);
   if(v.getUint16(0)!==0xFFD8)return 1;

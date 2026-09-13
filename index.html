@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZEBRA FINDER · v6.3</title>
+<title>ZEBRA FINDER · v6.2</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:#060608;color:#9a9aaa;font:11px/1.6 'Courier New',monospace}
@@ -37,7 +37,7 @@ input[type=file]{display:none}
 <div id="app">
   <div id="left">
     <div id="topbar">
-      <h1>ZEBRA·v6.3</h1>
+      <h1>ZEBRA·v6.2</h1>
       <label class="btn">▶ Файл<input type="file" id="fin" accept="image/*"></label>
       <button class="btn" id="camBtn">◎ Камера</button>
       <button class="btn" id="capBtn" style="display:none">● Знімок</button>
@@ -79,6 +79,9 @@ document.querySelectorAll('.tab').forEach(btn=>{
 
 // ════════════════════════════════════════════════════════
 //  PRE-PROCESSING PIPELINE
+//  Мета: підготувати погане зображення (камера, монітор)
+//  до незмінного декодера v5.1.
+//  Декодер нижче — заморожений, не змінювати!
 // ════════════════════════════════════════════════════════
 
 // ── EXIF ──
@@ -117,12 +120,13 @@ function applyExifRotation(img, orient){
   return c;
 }
 
-// ── ШУМОЗАГЛУШЕННЯ: Gaussian blur ──
+// ── ШУМОЗАГЛУШЕННЯ: Gaussian blur (separable, ядро 3×3) ──
 function gaussianBlur(idata, w, h, passes=1){
   const k=[1,2,1], ksum=4;
   let d=new Float32Array(idata.data);
   for(let p=0;p<passes;p++){
     const tmp=new Float32Array(d.length);
+    // horizontal
     for(let y=0;y<h;y++) for(let x=0;x<w;x++){
       for(let c=0;c<3;c++){
         let s=0;
@@ -131,6 +135,7 @@ function gaussianBlur(idata, w, h, passes=1){
       }
       tmp[(y*w+x)*4+3]=255;
     }
+    // vertical
     const tmp2=new Float32Array(tmp.length);
     for(let y=0;y<h;y++) for(let x=0;x<w;x++){
       for(let c=0;c<3;c++){
@@ -147,10 +152,64 @@ function gaussianBlur(idata, w, h, passes=1){
   return out;
 }
 
+// ── РІЗКІСТЬ: Unsharp mask ──
+function unsharpMask(idata, w, h, amount=0.6){
+  const blurred=gaussianBlur(idata,w,h,1);
+  const out=new ImageData(w,h);
+  for(let i=0;i<w*h*4;i+=4){
+    for(let c=0;c<3;c++){
+      const orig=idata.data[i+c], blur=blurred.data[i+c];
+      out.data[i+c]=Math.max(0,Math.min(255,Math.round(orig+amount*(orig-blur))));
+    }
+    out.data[i+3]=255;
+  }
+  return out;
+}
+
+// ── КОНТРАСТ: CLAHE-подібний (локальна нормалізація) ──
+function localContrast(idata, w, h, radius=40){
+  // Спрощений варіант: для кожного пікселя знаходимо локальний min/max
+  // через integral image і розтягуємо діапазон
+  const gray=new Uint8Array(w*h);
+  for(let i=0;i<w*h;i++) gray[i]=(77*idata.data[i*4]+150*idata.data[i*4+1]+29*idata.data[i*4+2])>>8;
+
+  // Integral image для gray
+  const ii=new Float32Array(w*h);
+  const ii2=new Float32Array(w*h);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const v=gray[y*w+x];
+    ii[y*w+x]=v+(x>0?ii[y*w+x-1]:0)+(y>0?ii[(y-1)*w+x]:0)-(x>0&&y>0?ii[(y-1)*w+x-1]:0);
+    ii2[y*w+x]=v*v+(x>0?ii2[y*w+x-1]:0)+(y>0?ii2[(y-1)*w+x]:0)-(x>0&&y>0?ii2[(y-1)*w+x-1]:0);
+  }
+
+  const out=new ImageData(w,h);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const x1=Math.max(0,x-radius),x2=Math.min(w-1,x+radius);
+    const y1=Math.max(0,y-radius),y2=Math.min(h-1,y+radius);
+    const cnt=(x2-x1+1)*(y2-y1+1);
+    const sm=ii[y2*w+x2]-(x1?ii[y2*w+x1-1]:0)-(y1?ii[(y1-1)*w+x2]:0)+(x1&&y1?ii[(y1-1)*w+x1-1]:0);
+    const sm2=ii2[y2*w+x2]-(x1?ii2[y2*w+x1-1]:0)-(y1?ii2[(y1-1)*w+x2]:0)+(x1&&y1?ii2[(y1-1)*w+x1-1]:0);
+    const mean=sm/cnt;
+    const std=Math.sqrt(Math.max(0,sm2/cnt-mean*mean));
+    const scale=std>8?60/std:1; // нормалізуємо до std=60
+    const i=y*w+x;
+    for(let c=0;c<3;c++){
+      const ch=idata.data[i*4+c];
+      const norm=Math.round(128+(ch-mean)*scale);
+      out.data[i*4+c]=Math.max(0,Math.min(255,norm));
+    }
+    out.data[i*4+3]=255;
+  }
+  return out;
+}
+
 // ── ГОЛОВНА ФУНКЦІЯ ПРЕПРОЦЕСИНГУ ──
+// Вхід: HTMLImageElement + EXIF orient
+// Вихід: ImageData з бінаризованими каналами R/G/B
 function preprocess(img, orient, maxSide=900){
   Lh('PRE-PROCESSING');
 
+  // 1. EXIF rotation
   let src;
   if(orient&&orient!==1){
     src=applyExifRotation(img,orient);
@@ -161,25 +220,28 @@ function preprocess(img, orient, maxSide=900){
     src.getContext('2d').drawImage(img,0,0);
   }
 
+  // 2. Resize
   let w=src.width, h=src.height;
   if(Math.max(w,h)>maxSide){const s=maxSide/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
   const c=document.createElement('canvas');c.width=w;c.height=h;
   c.getContext('2d').drawImage(src,0,0,w,h);
-  let idata=c.getContext('2d').getImageData(0,0,w,h);
+  const idata=c.getContext('2d').getImageData(0,0,w,h);
   Li('  Розмір: '+w+'×'+h);
 
-  // === Авто-обрезка сплошных рамок (черных/цветных) ===
-  const cropped = autoCrop(idata, w, h);
-  idata = cropped.idata; w = cropped.w; h = cropped.h;
-  Li('  Авто-обрізка країв: '+w+'×'+h);
-
+  // 3. Легкий blur — прибирає муар і піксельний шум монітора
   const blurred=gaussianBlur(idata,w,h,1);
-  Li('  → Gaussian blur 1px');
+  Li('  → Gaussian blur 1px (придушення муару)');
 
+  // 4. Бінаризація по каналах R, G, B окремо (Otsu)
+  //    Кожен канал → монохромне зображення → Otsu поріг → 0 або 255
+  //    Потім збираємо назад в ImageData де R=bin(R), G=bin(G), B=bin(B)
   const d=blurred.data;
+
+  // Витягуємо канали
   const chR=new Uint8Array(w*h), chG=new Uint8Array(w*h), chB=new Uint8Array(w*h);
   for(let i=0;i<w*h;i++){chR[i]=d[i*4];chG[i]=d[i*4+1];chB[i]=d[i*4+2];}
 
+  // Otsu для кожного каналу
   function otsuCh(ch){
     const hist=new Int32Array(256);for(const v of ch)hist[v]++;
     const N=ch.length;let sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];
@@ -191,6 +253,7 @@ function preprocess(img, orient, maxSide=900){
   const tR=otsuCh(chR), tG=otsuCh(chG), tB=otsuCh(chB);
   Li('  Otsu поріг: R='+tR+' G='+tG+' B='+tB);
 
+  // Бінаризуємо: значення вище порогу → 255, нижче → 0
   const out=new ImageData(w,h);
   for(let i=0;i<w*h;i++){
     out.data[i*4]  =chR[i]>tR?255:0;
@@ -203,88 +266,8 @@ function preprocess(img, orient, maxSide=900){
   return{idata:out,w,h};
 }
 
-// === ФУНКЦІЯ АВТО-ОБРІЗКИ ===
-function autoCrop(idata, w, h) {
-  const gray = toGray(idata, w, h);
-  const varThreshold = 40; 
-  let top = -1, bottom = -1, left = -1, right = -1;
-
-  for (let y = 0; y < h; y++) {
-    let sum = 0, sum2 = 0;
-    for (let x = 0; x < w; x++) {
-      const v = gray[y * w + x];
-      sum += v; sum2 += v * v;
-    }
-    const mean = sum / w;
-    const std = Math.sqrt(Math.max(0, sum2 / w - mean * mean));
-    if (std > varThreshold) { top = y; break; }
-  }
-
-  for (let y = h - 1; y >= 0; y--) {
-    let sum = 0, sum2 = 0;
-    for (let x = 0; x < w; x++) {
-      const v = gray[y * w + x];
-      sum += v; sum2 += v * v;
-    }
-    const mean = sum / w;
-    const std = Math.sqrt(Math.max(0, sum2 / w - mean * mean));
-    if (std > varThreshold) { bottom = y; break; }
-  }
-
-  for (let x = 0; x < w; x++) {
-    let sum = 0, sum2 = 0;
-    for (let y = 0; y < h; y++) {
-      const v = gray[y * w + x];
-      sum += v; sum2 += v * v;
-    }
-    const mean = sum / h;
-    const std = Math.sqrt(Math.max(0, sum2 / h - mean * mean));
-    if (std > varThreshold) { left = x; break; }
-  }
-
-  for (let x = w - 1; x >= 0; x--) {
-    let sum = 0, sum2 = 0;
-    for (let y = 0; y < h; y++) {
-      const v = gray[y * w + x];
-      sum += v; sum2 += v * v;
-    }
-    const mean = sum / h;
-    const std = Math.sqrt(Math.max(0, sum2 / h - mean * mean));
-    if (std > varThreshold) { right = x; break; }
-  }
-
-  if (top === -1 || bottom === -1 || left === -1 || right === -1 || right <= left || bottom <= top) {
-    return { idata, w, h };
-  }
-
-  const pad = 20; 
-  const newW = (right - left + 1) + pad * 2;
-  const newH = (bottom - top + 1) + pad * 2;
-
-  const newIdata = new ImageData(newW, newH);
-  const d = idata.data;
-  const nd = newIdata.data;
-
-  for (let i = 0; i < newW * newH; i++) {
-    nd[i * 4] = 255; nd[i * 4 + 1] = 255; nd[i * 4 + 2] = 255; nd[i * 4 + 3] = 255;
-  }
-
-  for (let y = 0; y <= bottom - top; y++) {
-    for (let x = 0; x <= right - left; x++) {
-      const srcIdx = ((y + top) * w + (x + left)) * 4;
-      const dstIdx = ((y + pad) * newW + (x + pad)) * 4;
-      nd[dstIdx] = d[srcIdx];
-      nd[dstIdx + 1] = d[srcIdx + 1];
-      nd[dstIdx + 2] = d[srcIdx + 2];
-      nd[dstIdx + 3] = d[srcIdx + 3];
-    }
-  }
-
-  return { idata: newIdata, w: newW, h: newH };
-}
-
 // ════════════════════════════════════════════════════════
-//  ДЕКОДЕР v5.1
+//  ДЕКОДЕР v5.1 — ЗАМОРОЖЕНИЙ, НЕ ЗМІНЮВАТИ
 // ════════════════════════════════════════════════════════
 
 function toGray(idata,w,h){const d=idata.data,g=new Uint8Array(w*h);for(let i=0;i<w*h;i++)g[i]=(77*d[i*4]+150*d[i*4+1]+29*d[i*4+2])>>8;return g;}
@@ -304,50 +287,17 @@ function erodeMask(mask,w,h){
   return out;
 }
 
-// ════════════════════════════════════════════════════════
-// ИЗМЕНЕННАЯ ФУНКЦИЯ (процентильно-устойчивая)
-// ════════════════════════════════════════════════════════
 function findCorners(mask,w,h,slack=12){
-  // Собираем все точки рамки
-  const pts = [];
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    if(mask[y*w+x]) pts.push({x,y});
-  }
-  
-  // Если точек нет — возвращаем дефолтные углы
-  if(pts.length === 0) return {tl:{x:0,y:0},tr:{x:w-1,y:0},br:{x:w-1,y:h-1},bl:{x:0,y:h-1}};
-
-  // Вычисляем x+y и x-y для всех точек
-  const sVals = pts.map(p=>p.x+p.y).sort((a,b)=>a-b);
-  const dVals = pts.map(p=>p.x-p.y).sort((a,b)=>a-b);
-
-  // Берем 2% и 98% перцентили, чтобы игнорировать шумовые выбросы (помехи)
-  const p1 = Math.floor(pts.length * 0.02);
-  const p2 = Math.floor(pts.length * 0.98);
-  
-  const tlS = sVals[p1];   // Top-Left: min(x+y)
-  const brS = sVals[p2];   // Bottom-Right: max(x+y)
-  const blS = dVals[p1];   // Bottom-Left: min(x-y)
-  const trS = dVals[p2];   // Top-Right: max(x-y)
-
-  // Усредняем точки, попадающие в "чистую" зону (с допуском slack)
+  let tlS=Infinity,trS=-Infinity,brS=-Infinity,blS=Infinity;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(!mask[y*w+x])continue;const s=x+y,d=x-y;if(s<tlS)tlS=s;if(d>trS)trS=d;if(s>brS)brS=s;if(d<blS)blS=d;}
   let tlX=0,tlY=0,tlN=0,trX=0,trY=0,trN=0,brX=0,brY=0,brN=0,blX=0,blY=0,blN=0;
-  
-  for(const p of pts){
-    const s=p.x+p.y, d=p.x-p.y;
-    if(s<=tlS+slack){tlX+=p.x;tlY+=p.y;tlN++;}      // TL
-    if(d>=trS-slack){trX+=p.x;trY+=p.y;trN++;}      // TR
-    if(s>=brS-slack){brX+=p.x;brY+=p.y;brN++;}      // BR
-    if(d<=blS+slack){blX+=p.x;blY+=p.y;blN++;}      // BL
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    if(!mask[y*w+x])continue;const s=x+y,d=x-y;
+    if(s<=tlS+slack){tlX+=x;tlY+=y;tlN++;}if(d>=trS-slack){trX+=x;trY+=y;trN++;}
+    if(s>=brS-slack){brX+=x;brY+=y;brN++;}if(d<=blS+slack){blX+=x;blY+=y;blN++;}
   }
-
   const avg=(sx,sy,n,dx,dy)=>n?{x:Math.round(sx/n),y:Math.round(sy/n)}:{x:dx,y:dy};
-  return{
-    tl:avg(tlX,tlY,tlN,0,0),
-    tr:avg(trX,trY,trN,w-1,0),
-    br:avg(brX,brY,brN,w-1,h-1),
-    bl:avg(blX,blY,blN,0,h-1)
-  };
+  return{tl:avg(tlX,tlY,tlN,0,0),tr:avg(trX,trY,trN,w-1,0),br:avg(brX,brY,brN,w-1,h-1),bl:avg(blX,blY,blN,0,h-1)};
 }
 
 function spread(c){const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);return Math.max(d(c.tl,c.tr),d(c.tr,c.br),d(c.br,c.bl),d(c.bl,c.tl));}
@@ -377,6 +327,7 @@ function warpPerspective(idata,sw,sh,corners,S){
   return out;
 }
 
+// verifyZebra — ТОЧНО як v5.1
 function verifyZebra(wGray,S,minContrast){
   function scanLine(arr){
     const n=arr.length;let mn=255,mx=0;for(const v of arr){if(v<mn)mn=v;if(v>mx)mx=v;}
@@ -395,6 +346,7 @@ function verifyZebra(wGray,S,minContrast){
     if(T<5)return null;
     return{T,modSize:S/T};
   }
+  // ТОЧНО як v5.1: probeOffsets=[2,5,10,15,20,30]
   const probeOffsets=[2,5,10,15,20,30];
   const votes=new Map();let total=0;
   for(const off of probeOffsets){
@@ -429,6 +381,7 @@ function sampleCircles(warped,S,T,modSize){
   return{cells,circleR};
 }
 
+// TAINA decoder — ТОЧНО як v5.1
 const RGB_MAIN={r:[255,0,0],g:[0,255,0],b:[0,0,255]};
 const RGB_GAL={r:[220,50,60],g:[65,195,65],b:[60,70,215]};
 const REFBITS=[[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,1,1],[1,1,1]];
@@ -443,8 +396,8 @@ function fillChannel(t,n,m,markBit){const g=new Uint8Array(n*n),bc=baseCells(m,n
 function markCell(g,n,m){const[x,y]=baseCells(m,n)[0];return g[y*n+x]?1:0;}
 function agree(g,chk,n){let ok=0;for(let z=0;z<n*n;z++)ok+=((chk[z]?1:0)===g[z])?1:0;return ok/(n*n);}
 function decodeVoted(g,n,m,off,conf){const bc=baseCells(m,n),by=[];for(let i=off||0;i+7<bc.length;i+=8){let v=0;for(let b=0;b<8;b++){const[x,y]=bc[i+b],cells=mirrors(m,n,x,y);let bit;if(conf){let w1=0,w0=0;for(const[X,Y]of cells){const cv=conf[Y*n+X];if(cv<0.15)continue;if(g[Y*n+X])w1+=cv;else w0+=cv;}bit=(w1===0&&w0===0)?g[y*n+x]?1:0:w1>w0?1:0;}else{let ones=0;for(const[X,Y]of cells)ones+=g[Y*n+X]?1:0;const cnt=cells.length;bit=ones*2>cnt?1:ones*2<cnt?0:g[y*n+x]?1:0;}v=(v<<1)|bit;}by.push(v);}return{text:bytesToText(by),bytes:by};}
-function refsFor(S){const mix=(r,g,b)=>[Math.min(255,(r?S.r[0]:0)+(g?S.g[0]:0)+(b?S.b[0]:0)),Math.min(255,(r?S.r[1]:0)+(g?S.g[1]:0)+(b?S.b[2]:0)),Math.min(255,(r?S.r[2]:0)+(g?S.g[2]:0)+(b?S.b[2]:0))];return REFBITS.map(c=>({bits:c,col:mix(c[0],c[1],c[2])}));}
-function classifyCells(cells,n){const pals=[['насичена',RGB_MAIN],['галерейна',RGB_GAL]];let best=null;for(const[name,S] of pals){const refs=refsFor(S);let err=0;const cr=new Uint8Array(n*n),cg=new Uint8Array(n*n),cb=new Uint8Array(n*n);for(let i=0;i<n*n;i++){const[R,G,B]=[cells[i].r,cells[i].g,cells[i].b];let bi=0,bd=1e9;for(let k=0;k<refs.length;k++){const q=refs[k].col,dr=R-q[0],dg=G-q[1],db=B-q[2],dd=dr*dr+dg*dg+db*db;if(dd<bd){bd=dd;bi=k;}}err+=bd;const t=refs[bi].bits;cr[i]=t[0];cg[i]=t[1];cb[i]=t[2];}if(!best||err<best.err)best={name,err,cr,cg,cb};}return best;}
+function refsFor(S){const mix=(r,g,b)=>[Math.min(255,(r?S.r[0]:0)+(g?S.g[0]:0)+(b?S.b[0]:0)),Math.min(255,(r?S.r[1]:0)+(g?S.g[1]:0)+(b?S.b[1]:0)),Math.min(255,(r?S.r[2]:0)+(g?S.g[2]:0)+(b?S.b[2]:0))];return REFBITS.map(c=>({bits:c,col:mix(c[0],c[1],c[2])}));}
+function classifyCells(cells,n){const pals=[['насичена',RGB_MAIN],['галерейна',RGB_GAL]];let best=null;for(const[name,S]of pals){const refs=refsFor(S);let err=0;const cr=new Uint8Array(n*n),cg=new Uint8Array(n*n),cb=new Uint8Array(n*n);for(let i=0;i<n*n;i++){const[R,G,B]=[cells[i].r,cells[i].g,cells[i].b];let bi=0,bd=1e9;for(let k=0;k<refs.length;k++){const q=refs[k].col,dr=R-q[0],dg=G-q[1],db=B-q[2],dd=dr*dr+dg*dg+db*db;if(dd<bd){bd=dd;bi=k;}}err+=bd;const t=refs[bi].bits;cr[i]=t[0];cg[i]=t[1];cb[i]=t[2];}if(!best||err<best.err)best={name,err,cr,cg,cb};}return best;}
 
 function decodeCircles(circles,T){
   const cells=circles.cells,n=T-2;
@@ -485,6 +438,7 @@ function decodeCircles(circles,T){
   }
 }
 
+// ── v5.1 PIPELINE (маска + кути — точно як оригінал) ──
 function findFrame(idata,w,h){
   const gray=toGray(idata,w,h);
   const bg=sampleBG(gray,w,h,5);
@@ -503,6 +457,7 @@ function findFrame(idata,w,h){
   }
   Li('Обрано tol='+bestTol+'  spread='+Math.round(bestSpread)+'px');
 
+  // variance-scan fallback — точно як v5.1
   if(!bestCorners||bestSpread<30){
     Li('Маска не спрацювала — variance-scan');
     const topRows=[],leftCols=[];
@@ -575,6 +530,7 @@ function buildRGBPanel(warped,S,T,modSize,circles){
 
 // ── MAIN RUN ──
 function run(idata,w,h){
+  // Декодер v5.1 — незмінний
   Lh('1. ПОШУК РАМКИ');
   const{corners,spread:sp}=findFrame(idata,w,h);
   if(!corners||sp<20){
@@ -584,18 +540,18 @@ function run(idata,w,h){
     return;
   }
   const exp=6;
-  const c={tl:{x:corners.tl.x-exp,y:corners.tl.y-exp},tr:{x:corners.tr.x+exp,y:corners.tr.y-exp},br:{x:corners.br.x+exp,y:corners.br.y+exp},bl:{x:corners.bl.x-exp,y:corners.bl.y-exp}};
+  const c={tl:{x:corners.tl.x-exp,y:corners.tl.y-exp},tr:{x:corners.tr.x+exp,y:corners.tr.y-exp},br:{x:corners.br.x+exp,y:corners.br.y+exp},bl:{x:corners.bl.x-exp,y:corners.bl.y+exp}};
   Li('TL('+c.tl.x+','+c.tl.y+') TR('+c.tr.x+','+c.tr.y+') BR('+c.br.x+','+c.br.y+') BL('+c.bl.x+','+c.bl.y+')');
 
   Lh('2. WARP');
-  const S=600;
+  const S=600; // ТОЧНО як v5.1
   const warped=warpPerspective(idata,w,h,c,S);
   if(!warped){Le('Гомографія не вдалася');setSt('✗ warp failed',false);return;}
   Lok('Warp → '+S+'×'+S);
 
   Lh('3. ЗЕБРА');
   const wGray=toGray(warped,S,S);
-  const zebra=verifyZebra(wGray,S,50);
+  const zebra=verifyZebra(wGray,S,50); // minContrast=50, ТОЧНО як v5.1
   if(zebra)Li('  голоси: '+zebra.voteStr);
   if(!zebra){Le('Зебру не знайдено');drawResult(warped,S,null,idata,w,h,c);setSt('✗ зебру не знайдено',false);return;}
   Lok('T='+zebra.T+'  mod='+zebra.modSize.toFixed(1)+'px  conf='+(zebra.confidence*100).toFixed(0)+'%');
@@ -631,6 +587,7 @@ function processImage(img,orient){
   run(idata,w,h);
 }
 
+// Файл
 document.getElementById('fin').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
   Li('Файл: '+f.name);
@@ -645,6 +602,7 @@ document.getElementById('fin').addEventListener('change',e=>{
   e.target.value='';
 });
 
+// Камера
 let stream=null;
 const vid=document.getElementById('vid');
 const vidWrap=document.getElementById('vidWrap');

@@ -310,22 +310,43 @@ function erodeMask(mask,w,h){
     if(mask[y*w+x]&&mask[(y-1)*w+x]&&mask[(y+1)*w+x]&&mask[y*w+x-1]&&mask[y*w+x+1])out[y*w+x]=1;
   return out;
 }
-
 function findCorners(mask,w,h,slack=12){
-  let tlS=Infinity,trS=-Infinity,brS=-Infinity,blS=Infinity;
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(!mask[y*w+x])continue;const s=x+y,d=x-y;if(s<tlS)tlS=s;if(d>trS)trS=d;if(s>brS)brS=s;if(d<blS)blS=d;}
-  let tlX=0,tlY=0,tlN=0,trX=0,trY=0,trN=0,brX=0,brY=0,brN=0,blX=0,blY=0,blN=0;
+  const pts = [];
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    if(!mask[y*w+x])continue;const s=x+y,d=x-y;
-    if(s<=tlS+slack){tlX+=x;tlY+=y;tlN++;}if(d>=trS-slack){trX+=x;trY+=y;trN++;}
-    if(s>=brS-slack){brX+=x;brY+=y;brN++;}if(d<=blS+slack){blX+=x;blY+=y;blN++;}
+    if(mask[y*w+x]) pts.push({x,y});
   }
+  
+  if(pts.length === 0) return {tl:{x:0,y:0},tr:{x:w-1,y:0},br:{x:w-1,y:h-1},bl:{x:0,y:h-1}};
+
+  const sVals = pts.map(p=>p.x+p.y).sort((a,b)=>a-b);
+  const dVals = pts.map(p=>p.x-p.y).sort((a,b)=>a-b);
+
+  const p1 = Math.floor(pts.length * 0.02);
+  const p2 = Math.floor(pts.length * 0.98);
+  
+  const tlS = sVals[p1];
+  const brS = sVals[p2];
+  const blS = dVals[p1];
+  const trS = dVals[p2];
+
+  let tlX=0,tlY=0,tlN=0,trX=0,trY=0,trN=0,brX=0,brY=0,brN=0,blX=0,blY=0,blN=0;
+  
+  for(const p of pts){
+    const s=p.x+p.y, d=p.x-p.y;
+    if(s<=tlS+slack){tlX+=p.x;tlY+=p.y;tlN++;}
+    if(d>=trS-slack){trX+=p.x;trY+=p.y;trN++;}
+    if(s>=brS-slack){brX+=p.x;brY+=p.y;brN++;}
+    if(d<=blS+slack){blX+=p.x;blY+=p.y;blN++;}
+  }
+
   const avg=(sx,sy,n,dx,dy)=>n?{x:Math.round(sx/n),y:Math.round(sy/n)}:{x:dx,y:dy};
-  return{tl:avg(tlX,tlY,tlN,0,0),tr:avg(trX,trY,trN,w-1,0),br:avg(brX,brY,brN,w-1,h-1),bl:avg(blX,blY,blN,0,h-1)};
+  return{
+    tl:avg(tlX,tlY,tlN,0,0),
+    tr:avg(trX,trY,trN,w-1,0),
+    br:avg(brX,brY,brN,w-1,h-1),
+    bl:avg(blX,blY,blN,0,h-1)
+  };
 }
-
-function spread(c){const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);return Math.max(d(c.tl,c.tr),d(c.tr,c.br),d(c.br,c.bl),d(c.bl,c.tl));}
-
 function gaussElim(A,b){
   const n=b.length,M=A.map((r,i)=>[...r,b[i]]);
   for(let c=0;c<n;c++){let mr=c,mv=Math.abs(M[c][c]);for(let r=c+1;r<n;r++)if(Math.abs(M[r][c])>mv){mv=Math.abs(M[r][c]);mr=r;}[M[c],M[mr]]=[M[mr],M[c]];const pv=M[c][c];if(Math.abs(pv)<1e-12)return null;for(let r=c+1;r<n;r++){const f=M[r][c]/pv;for(let j=c;j<=n;j++)M[r][j]-=f*M[c][j];}}
